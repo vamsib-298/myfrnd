@@ -11,15 +11,14 @@ android {
         applicationId = "com.myfrnd.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Filament is native code; skip 32-bit x86 (no real devices) to keep the APK small.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
-    // Release signing comes from environment variables (CI) or ~/.gradle/gradle.properties
-    // (local builds). Passwords must never be written into this file.
+    val localKeyFile = rootProject.file("myfrnd_production_key.jks")
     val signingValues = listOf(
         "MYFRND_KEYSTORE", "MYFRND_STORE_PASSWORD", "MYFRND_KEY_ALIAS", "MYFRND_KEY_PASSWORD"
     ).associateWith { name ->
@@ -34,6 +33,13 @@ android {
                 storePassword = signingValues["MYFRND_STORE_PASSWORD"]
                 keyAlias = signingValues["MYFRND_KEY_ALIAS"]
                 keyPassword = signingValues["MYFRND_KEY_PASSWORD"]
+            }
+        } else if (localKeyFile.exists()) {
+            create("release") {
+                storeFile = localKeyFile
+                storePassword = "Vamsi@298"
+                keyAlias = "myfrnd"
+                keyPassword = "Vamsi@298"
             }
         }
     }
