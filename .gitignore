@@ -4,6 +4,9 @@ build/
 app/build/
 **/build/
 
+# Kotlin compiler cache
+.kotlin/
+
 # Android Studio and IDE files
 .idea/
 *.iml
