@@ -174,6 +174,7 @@ class MainActivity : AppCompatActivity() {
             if (!syncing) CompanionPreferences.setReducedMotion(this@MainActivity, checked)
         }
         val poses = listOf(
+            Triple(btnPoseWalk, R.string.walk_message, HumanCompanionView.Expression.NORMAL),
             Triple(btnPoseHappy, R.string.demo_message, HumanCompanionView.Expression.WINK_PLAYFUL),
             Triple(btnPoseWater, R.string.water_message, HumanCompanionView.Expression.HAPPY_WATER),
             Triple(btnPoseEyes, R.string.eye_message, HumanCompanionView.Expression.TIRED_EYES),
@@ -184,6 +185,8 @@ class MainActivity : AppCompatActivity() {
             button.setOnClickListener {
                 liveDashboardCompanion.displayMode = if (button == btnPoseThread)
                     HumanCompanionView.DisplayMode.THREAD_DROP else HumanCompanionView.DisplayMode.FULL_BODY
+                liveDashboardCompanion.animationPhase = if (button == btnPoseWalk)
+                    HumanCompanionView.PHASE_WALK_IN else HumanCompanionView.PHASE_IDLE
                 liveDashboardCompanion.currentExpression = expression
                 liveDashboardCompanion.isTalking = true
                 liveDashboardCompanion.triggerTapReaction()

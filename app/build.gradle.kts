@@ -11,8 +11,8 @@ android {
         applicationId = "com.myfrnd.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.0.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Filament is native code; skip 32-bit x86 (no real devices) to keep the APK small.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }

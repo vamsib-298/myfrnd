@@ -212,8 +212,10 @@ class OverlayWindowManager(
                 return@Runnable
             }
             if (animate) {
+                val isWalkingEntrance = style == EntranceStyle.LEFT_TO_RIGHT || style == EntranceStyle.RIGHT_TO_LEFT
+                val duration = if (isWalkingEntrance) 1200L else 650L
                 view.animate().alpha(1f).translationX(0f).translationY(0f)
-                    .setDuration(650L).setInterpolator(DecelerateInterpolator())
+                    .setDuration(duration).setInterpolator(DecelerateInterpolator())
                     .withEndAction { speak(spokenText) }.start()
             } else {
                 // Reduced motion: no movement, only a short fade.

@@ -46,6 +46,7 @@
                 android:layout_marginTop="12dp" android:scrollbars="none"
                 android:requiresFadingEdge="horizontal" android:fadingEdgeLength="@dimen/chip_row_fade">
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content">
+                    <Button android:id="@+id/btnPoseWalk" style="@style/Choice" android:text="@string/pose_walk" />
                     <Button android:id="@+id/btnPoseHappy" style="@style/Choice" android:text="@string/pose_cheer" />
                     <Button android:id="@+id/btnPoseWater" style="@style/Choice" android:text="@string/pose_water" />
                     <Button android:id="@+id/btnPoseEyes" style="@style/Choice" android:text="@string/pose_eyes" />

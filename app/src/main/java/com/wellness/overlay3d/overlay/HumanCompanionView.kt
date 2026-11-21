@@ -99,6 +99,9 @@ class HumanCompanionView @JvmOverloads constructor(
         set(value) {
             if (field == value) return
             field = value
+            if (value && motionAllowed) {
+                director?.let { if (!it.isPlayingOneShot) it.playOnce(clipFor(CompanionMove.GESTURE)) }
+            }
             requestRender()
         }
 

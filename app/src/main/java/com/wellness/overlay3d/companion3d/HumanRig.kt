@@ -14,10 +14,10 @@ object HumanRig {
 
     private val moveAliases: Map<CompanionMove, List<String>> = mapOf(
         CompanionMove.IDLE to listOf("idle", "breathing", "breathe", "stand", "standing", "rest"),
-        CompanionMove.IDLE_ALT to listOf("neutral", "relaxed", "bored", "looking", "look"),
+        CompanionMove.IDLE_ALT to listOf("neutral", "relaxed", "bored", "looking", "look", "shake", "headshake"),
         CompanionMove.WAVE to listOf("wave", "waving", "hello", "greet", "greeting"),
         CompanionMove.WALK to listOf("walk", "walking", "stroll"),
-        CompanionMove.GESTURE to listOf("interact", "talk", "talking", "yes", "nod", "point", "pointing", "explain", "drink")
+        CompanionMove.GESTURE to listOf("interact", "talk", "talking", "yes", "nod", "point", "pointing", "explain", "drink", "agree")
     )
 
     /** Clips that never make sense for a wellness buddy, even if they also contain an idle/walk word. */
