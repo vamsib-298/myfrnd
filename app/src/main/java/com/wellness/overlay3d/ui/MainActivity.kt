@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
     private val taskListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> renderTasks() }
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> loadSettings() }
     private val overlayPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (pendingEnable && Settings.canDrawOverlays(this)) enableCompanion()
+        if (Settings.canDrawOverlays(this)) enableCompanion()
         pendingEnable = false
         loadSettings()
     }
@@ -110,9 +110,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         binding.liveDashboardCompanion.animationEnabled = true
+        if (Settings.canDrawOverlays(this)) {
+            if (!CompanionPreferences.isCompanionEnabled(this)) {
+                enableCompanion()
+            } else if (!CompanionRuntime.status.value.running) {
+                OverlayService.updateConfiguration(this)
+            }
+        }
         loadSettings()
-        if (CompanionPreferences.isCompanionEnabled(this) && Settings.canDrawOverlays(this) &&
-            !CompanionRuntime.status.value.running) OverlayService.updateConfiguration(this)
     }
 
     override fun onPause() {
@@ -134,7 +139,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() = with(binding) {
-        btnMandatoryGrant.setOnClickListener { requestOverlay() }
+        btnMandatoryGrant.setOnClickListener {
+            pendingEnable = true
+            requestOverlay()
+        }
         btnNotifications.setOnClickListener {
             if (Build.VERSION.SDK_INT >= 33 &&
                 notificationAction() == NotificationPermissionFlow.Action.SHOW_SYSTEM_PROMPT) {
@@ -164,15 +172,7 @@ class MainActivity : AppCompatActivity() {
         waterChoices().forEach { (button, value) ->
             button.setOnClickListener { CompanionPreferences.setWaterIntervalMinutes(this@MainActivity, value) }
         }
-        positionChoices().forEach { (button, value) ->
-            button.setOnClickListener { CompanionPreferences.setPositionMode(this@MainActivity, value) }
-        }
-        switchVoice.setOnCheckedChangeListener { _, checked ->
-            if (!syncing) CompanionPreferences.setVoiceEnabled(this@MainActivity, checked)
-        }
-        switchReducedMotion.setOnCheckedChangeListener { _, checked ->
-            if (!syncing) CompanionPreferences.setReducedMotion(this@MainActivity, checked)
-        }
+
         val poses = listOf(
             Triple(btnPoseWalk, R.string.walk_message, HumanCompanionView.Expression.NORMAL),
             Triple(btnPoseHappy, R.string.demo_message, HumanCompanionView.Expression.WINK_PLAYFUL),
@@ -240,10 +240,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun eyeChoices() = with(binding) { listOf(chipEye15 to 15, chipEye20 to 20, chipEye30 to 30, chipEye45 to 45) }
     private fun waterChoices() = with(binding) { listOf(chipWater15 to 15, chipWater30 to 30, chipWater45 to 45, chipWater60 to 60) }
-    private fun positionChoices() = with(binding) {
-        listOf(chipPosAuto to CompanionPreferences.POSITION_AUTO, chipPosThread to CompanionPreferences.POSITION_THREAD_DROP,
-            chipPosTopRight to CompanionPreferences.POSITION_TOP_RIGHT, chipPosBottom to CompanionPreferences.POSITION_BOTTOM)
-    }
 
     private fun select(button: Button, selected: Boolean) {
         button.isSelected = selected
@@ -253,13 +249,10 @@ class MainActivity : AppCompatActivity() {
     private fun loadSettings() = with(binding) {
         syncing = true
         switchEnableCompanion.isChecked = CompanionPreferences.isCompanionEnabled(this@MainActivity)
-        switchVoice.isChecked = CompanionPreferences.isVoiceEnabled(this@MainActivity)
-        switchReducedMotion.isChecked = CompanionPreferences.isReducedMotion(this@MainActivity)
-        liveDashboardCompanion.reducedMotion = switchReducedMotion.isChecked
+        liveDashboardCompanion.reducedMotion = CompanionPreferences.isReducedMotion(this@MainActivity)
         syncing = false
         eyeChoices().forEach { select(it.first, it.second == CompanionPreferences.getEyeStrainMinutes(this@MainActivity)) }
         waterChoices().forEach { select(it.first, it.second == CompanionPreferences.getWaterIntervalMinutes(this@MainActivity)) }
-        positionChoices().forEach { select(it.first, it.second == CompanionPreferences.getPositionMode(this@MainActivity)) }
         refreshPermissions()
         renderStatus(CompanionRuntime.status.value)
     }

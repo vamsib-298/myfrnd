@@ -253,9 +253,11 @@ class HumanCompanionView @JvmOverloads constructor(
             it.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
-        fallbackView.setImageResource(R.drawable.ic_launcher_foreground)
+        fallbackView.setImageResource(R.drawable.img_companion_avatar)
         fallbackView.scaleType = ImageView.ScaleType.FIT_CENTER
-        fallbackView.visibility = GONE
+        fallbackView.alpha = 1f
+        fallbackView.visibility = VISIBLE
+        fallbackView.alpha = 1f
         val spinnerSize = (32 * density).toInt()
         loadingView.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         addView(loadingView, LayoutParams(spinnerSize, spinnerSize, Gravity.CENTER))
@@ -278,7 +280,9 @@ class HumanCompanionView @JvmOverloads constructor(
         textureView.visibility = VISIBLE
         effectsLayer.visibility = VISIBLE
         shadowLayer.visibility = VISIBLE
-        fallbackView.visibility = GONE
+        fallbackView.alpha = 1f
+        fallbackView.alpha = 1f
+        fallbackView.visibility = VISIBLE
         loadingView.visibility = VISIBLE
         setRenderState(RenderState.LOADING)
         if (!isHardwareAccelerated) {
@@ -457,6 +461,7 @@ class HumanCompanionView @JvmOverloads constructor(
         textureView.visibility = GONE
         effectsLayer.visibility = GONE
         shadowLayer.visibility = GONE
+        fallbackView.alpha = 1f
         fallbackView.visibility = VISIBLE
         setRenderState(RenderState.FAILED)
     }
@@ -542,7 +547,7 @@ class HumanCompanionView @JvmOverloads constructor(
         val center = box.center
         val half = box.halfExtent
         val height = (half[1] * 2f).takeIf { it > 1e-4f } ?: 1f
-        val scale = MODEL_HEIGHT / height
+        val scale = (MODEL_HEIGHT / height).coerceIn(0.2f, 5.0f)
         Matrix.setIdentityM(normalize, 0)
         Matrix.scaleM(normalize, 0, scale, scale, scale)
         Matrix.translateM(normalize, 0, -center[0], -(center[1] - half[1]), -center[2])
@@ -842,7 +847,12 @@ class HumanCompanionView @JvmOverloads constructor(
                 }
                 // Filament refuses a new frame while two are still on the GPU, so once this many body
                 // frames were accepted the first one has finished and is on its way to the screen.
-                if (modelFramesSubmitted >= FRAMES_UNTIL_VISIBLE) setRenderState(RenderState.READY)
+                if (modelFramesSubmitted >= FRAMES_UNTIL_VISIBLE) {
+                    setRenderState(RenderState.READY)
+                    fallbackView.animate().alpha(0f).setDuration(FADE_IN_MS).withEndAction {
+                        fallbackView.visibility = GONE
+                    }.start()
+                }
             }
         }
         invalidateEffectLayers()
@@ -885,9 +895,9 @@ class HumanCompanionView @JvmOverloads constructor(
         filamentView?.let { if (it.viewport.width != w || it.viewport.height != h) it.viewport = Viewport(0, 0, w, h) }
         val aspect = w.toFloat() / h
         val (centerY, halfHeight, halfWidth) = when (displayMode) {
-            DisplayMode.FULL_BODY -> Triple(0.9f, 1.02f, 0.62f)
-            DisplayMode.TOP_RIGHT_PEEK -> Triple(1.38f, 0.48f, 0.45f)
-            DisplayMode.THREAD_DROP -> Triple(1.0f, 1.12f, 0.62f)
+            DisplayMode.FULL_BODY -> Triple(0.85f, 0.98f, 0.58f)
+            DisplayMode.TOP_RIGHT_PEEK -> Triple(1.35f, 0.45f, 0.40f)
+            DisplayMode.THREAD_DROP -> Triple(0.95f, 1.05f, 0.58f)
         }
         val tanHalf = tan(Math.toRadians(FOV_DEGREES / 2.0)).toFloat()
         val distance = max(halfHeight / tanHalf, halfWidth / (tanHalf * aspect))
