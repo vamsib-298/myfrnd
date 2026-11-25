@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.widget.TextView
 import androidx.lifecycle.Lifecycle
@@ -19,7 +20,6 @@ import com.wellness.overlay3d.service.OverlayService
 import com.wellness.overlay3d.ui.MainActivity
 import com.wellness.overlay3d.util.CompanionPreferences
 import com.wellness.overlay3d.util.TaskManager
-import android.os.ParcelFileDescriptor
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -42,7 +42,6 @@ class CompanionServiceTest {
         if (Build.VERSION.SDK_INT >= 33) shell("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")
         shell("input keyevent 224")
         shell("input keyevent 82")
-        // Launch like the home screen does: its MAIN/LAUNCHER base intent differs from the notification's explicit one.
         scenario = ActivityScenario.launch(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClassName(context, MainActivity::class.java.name)
         )
@@ -68,7 +67,6 @@ class CompanionServiceTest {
     @Test fun allSimultaneousTasksAreActuallyDisplayedSequentially() {
         start()
         scenario.onActivity {
-            // One shared due time; the margin keeps all three adds in the future on a loaded device.
             val due = System.currentTimeMillis() + 5_000L
             repeat(3) { index ->
                 TaskManager.addReminder(it, TaskReminder("task-$index", "Task $index", due))
@@ -76,7 +74,6 @@ class CompanionServiceTest {
         }
         waitUntil(20_000L) { TaskManager.getPendingReminders(context).size == 2 }
         assertEquals(listOf("task-1", "task-2"), TaskManager.getPendingReminders(context).map { it.id })
-        // The original implementation marked every due task triggered before showing only the first.
         SystemClock.sleep(500L)
         assertEquals(2, TaskManager.getPendingReminders(context).size)
         waitUntil(20_000L) { TaskManager.getPendingReminders(context).size == 1 }
@@ -93,17 +90,16 @@ class CompanionServiceTest {
         scenario.recreate()
         instrumentation.waitForIdleSync()
         val current = CompanionRuntime.status.value
-        assertEquals(original.nextWater, current.nextWater)
         assertEquals(original.nextEye, current.nextEye)
     }
 
     @Test fun liveCountdownTextActuallyDecreases() {
         start()
         var before = ""
-        scenario.onActivity { before = it.findViewById<TextView>(R.id.tvWaterCountdown).text.toString() }
+        scenario.onActivity { before = it.findViewById<TextView>(R.id.tvEyeCountdown).text.toString() }
         SystemClock.sleep(2_100L)
         var after = ""
-        scenario.onActivity { after = it.findViewById<TextView>(R.id.tvWaterCountdown).text.toString() }
+        scenario.onActivity { after = it.findViewById<TextView>(R.id.tvEyeCountdown).text.toString() }
         fun seconds(text: String): Int {
             val parts = text.split(":").map(String::toInt)
             return parts[0] * 60 + parts[1]
@@ -119,7 +115,7 @@ class CompanionServiceTest {
         scenario.recreate()
         scenario.moveToState(Lifecycle.State.RESUMED)
         instrumentation.waitForIdleSync()
-        assertFalse("Restoring the old switch must not enable reminders", CompanionPreferences.isCompanionEnabled(context))
+        assertFalse("Restoring the old state must not enable reminders", CompanionPreferences.isCompanionEnabled(context))
         assertFalse(CompanionRuntime.status.value.running)
     }
 
@@ -130,7 +126,7 @@ class CompanionServiceTest {
         }
         waitUntil { !CompanionPreferences.isCompanionEnabled(context) && !CompanionRuntime.status.value.running }
         scenario.onActivity {
-            CompanionPreferences.setWaterIntervalMinutes(it, 45)
+            CompanionPreferences.setEyeStrainMinutes(it, 30)
             BootReceiver().onReceive(it, Intent(Intent.ACTION_BOOT_COMPLETED))
         }
         instrumentation.waitForIdleSync()
@@ -162,7 +158,6 @@ class CompanionServiceTest {
             open.send()
             SystemClock.sleep(1_500L)
         }
-        // Without singleTask every tap stacked one more dashboard, so Back had to be pressed once per tap.
         assertEquals("Tapping the notification must not stack another dashboard", 1, activitiesInAppTasks())
     }
 

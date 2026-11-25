@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.asStateFlow
 data class CompanionStatus(
     val running: Boolean = false,
     val screenActive: Boolean = false,
-    val nextWater: Long? = null,
+    val screenBreakEnabled: Boolean = true,
     val nextEye: Long? = null,
     val error: Int? = null
 )

@@ -4,13 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * CompanionPreferences: Settings for intervals, entrance styles, and companion state.
+ * CompanionPreferences: Focused settings for Screen Break, Companion state, and permissions.
  */
 object CompanionPreferences {
     private const val PREFS_NAME = "myfrnd_preferences"
 
-    private const val KEY_WATER_INTERVAL_MIN = "key_water_interval_min"
     private const val KEY_EYE_STRAIN_MIN = "key_eye_strain_min"
+    private const val KEY_SCREEN_BREAK_ENABLED = "key_screen_break_enabled"
     private const val KEY_COMPANION_ENABLED = "key_companion_enabled"
     private const val KEY_POSITION_MODE = "key_position_mode"
     private const val KEY_VOICE_ENABLED = "key_voice_enabled"
@@ -28,22 +28,21 @@ object CompanionPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    fun getWaterIntervalMinutes(context: Context): Int {
-        return getPrefs(context).getInt(KEY_WATER_INTERVAL_MIN, 30) // Default 30 min
-    }
-
-    fun setWaterIntervalMinutes(context: Context, minutes: Int) {
-        require(minutes in listOf(15, 30, 45, 60))
-        getPrefs(context).edit().putInt(KEY_WATER_INTERVAL_MIN, minutes).apply()
-    }
-
     fun getEyeStrainMinutes(context: Context): Int {
-        return getPrefs(context).getInt(KEY_EYE_STRAIN_MIN, 15) // Default 15 min
+        return getPrefs(context).getInt(KEY_EYE_STRAIN_MIN, 20) // Default 20 min (20-20-20 rule)
     }
 
     fun setEyeStrainMinutes(context: Context, minutes: Int) {
         require(minutes in listOf(15, 20, 30, 45))
         getPrefs(context).edit().putInt(KEY_EYE_STRAIN_MIN, minutes).apply()
+    }
+
+    fun isScreenBreakEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_SCREEN_BREAK_ENABLED, true)
+    }
+
+    fun setScreenBreakEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_SCREEN_BREAK_ENABLED, enabled).apply()
     }
 
     fun isCompanionEnabled(context: Context): Boolean {

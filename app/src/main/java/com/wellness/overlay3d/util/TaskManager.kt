@@ -20,7 +20,10 @@ object TaskManager {
             val array = JSONArray(source)
             val reminders = List(array.length()) { TaskReminder.fromJson(array.getJSONObject(it)) }
             require(reminders.map { it.id }.distinct().size == reminders.size) { "Duplicate reminder IDs" }
-            return reminders.sortedBy { it.timestampMillis }
+            // Timed reminders come first sorted by due time, then quick notes sorted newest first.
+            return reminders.sortedWith(compareBy<TaskReminder> { it.isNote }.thenBy {
+                if (it.isNote) -it.timestampMillis else it.timestampMillis
+            })
         } catch (error: JSONException) {
             throw TaskStorageException(error)
         } catch (error: IllegalArgumentException) {
@@ -31,11 +34,22 @@ object TaskManager {
     fun getPendingReminders(context: Context): List<TaskReminder> =
         getAllReminders(context).filterNot { it.isTriggered }
 
+    fun getPendingTimedReminders(context: Context): List<TaskReminder> =
+        getAllReminders(context).filter { !it.isTriggered && !it.isNote }
+
     fun addReminder(context: Context, reminder: TaskReminder, now: Long = System.currentTimeMillis()) {
-        require(reminder.timestampMillis > now) { "Choose a future reminder time" }
+        if (!reminder.isNote) {
+            require(reminder.timestampMillis > now) { "Choose a future reminder time" }
+        }
         val current = getAllReminders(context)
         require(current.none { it.id == reminder.id }) { "Reminder already exists" }
         saveReminders(context, current + reminder)
+    }
+
+    fun addNote(context: Context, title: String, now: Long = System.currentTimeMillis()): TaskReminder {
+        val note = TaskReminder(title = title.trim(), timestampMillis = now.coerceAtLeast(1L), isNote = true)
+        addReminder(context, note, now)
+        return note
     }
 
     fun removeReminder(context: Context, reminderId: String) {
@@ -43,10 +57,24 @@ object TaskManager {
     }
 
     fun updateReminder(context: Context, reminder: TaskReminder, now: Long = System.currentTimeMillis()): Boolean {
-        require(reminder.timestampMillis > now) { "Choose a future reminder time" }
+        if (!reminder.isNote) {
+            require(reminder.timestampMillis > now) { "Choose a future reminder time" }
+        }
         val current = getAllReminders(context)
         if (current.none { it.id == reminder.id && !it.isTriggered }) return false
         saveReminders(context, current.map { if (it.id == reminder.id) reminder else it })
+        return true
+    }
+
+    fun snoozeReminder(context: Context, reminderId: String, delayMillis: Long, now: Long = System.currentTimeMillis()): Boolean {
+        val current = getAllReminders(context)
+        val target = current.firstOrNull { it.id == reminderId } ?: return false
+        val updated = target.copy(
+            timestampMillis = now + delayMillis.coerceAtLeast(60_000L),
+            isTriggered = false,
+            isNote = false
+        )
+        saveReminders(context, current.map { if (it.id == reminderId) updated else it })
         return true
     }
 

@@ -4,13 +4,14 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * TaskReminder: Data model for work and task reminders.
+ * TaskReminder: Data model for notes and timed task reminders.
  */
 data class TaskReminder(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val timestampMillis: Long,
-    val isTriggered: Boolean = false
+    val isTriggered: Boolean = false,
+    val isNote: Boolean = false
 ) {
     init {
         require(id.isNotBlank()) { "Reminder ID must not be blank" }
@@ -24,6 +25,7 @@ data class TaskReminder(
             put("title", title)
             put("timestampMillis", timestampMillis)
             put("isTriggered", isTriggered)
+            put("isNote", isNote)
         }
     }
 
@@ -35,7 +37,8 @@ data class TaskReminder(
                 id = json.getString("id"),
                 title = json.getString("title"),
                 timestampMillis = json.getLong("timestampMillis"),
-                isTriggered = if (json.has("isTriggered")) json.getBoolean("isTriggered") else false
+                isTriggered = if (json.has("isTriggered")) json.getBoolean("isTriggered") else false,
+                isNote = if (json.has("isNote")) json.getBoolean("isNote") else false
             )
         }
     }

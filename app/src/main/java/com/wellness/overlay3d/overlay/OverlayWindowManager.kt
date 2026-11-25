@@ -1,6 +1,7 @@
 package com.wellness.overlay3d.overlay
 
 import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Handler
@@ -11,32 +12,66 @@ import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.TextView
 import com.wellness.overlay3d.R
 import com.wellness.overlay3d.util.CompanionPreferences
 import java.util.Locale
+import kotlin.math.abs
 
 class OverlayWindowManager(
     private val context: Context,
-    private val onDismissed: () -> Unit = {}
+    private val onDismissed: () -> Unit = {},
+    private val onEyeBreakDone: () -> Unit = {},
+    private val onEyeBreakSnooze: () -> Unit = {},
+    private val onTaskSnooze: (String) -> Unit = {}
 ) {
-    enum class OverlayReason { WATER_REMINDER, EYE_STRAIN, WORK_TASK_REMINDER, GENERAL_TEST }
-    enum class EntranceStyle { THREAD_DROP, LEFT_TO_RIGHT, RIGHT_TO_LEFT, TOP_RIGHT_PEEK, BOTTOM_SLIDE }
+    enum class OverlayReason { EYE_STRAIN, WORK_TASK_REMINDER, GENERAL_TEST }
+    enum class EntranceStyle { LEFT_TO_RIGHT, RIGHT_TO_LEFT, BOTTOM_SLIDE }
 
     private val windowManager = context.getSystemService(WindowManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
     private var root: View? = null
     private var character: HumanCompanionView? = null
+    private var currentParams: WindowManager.LayoutParams? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var closed = false
     private var dismissing = false
     private var generation = 0L
+    private var breakRemainingSeconds = 0
     private val timeout = Runnable { dismiss() }
+    private val breakTick = object : Runnable {
+        override fun run() {
+            val view = root ?: return
+            if (dismissing) return
+            if (breakRemainingSeconds > 0) {
+                breakRemainingSeconds--
+                updateBreakCard(view)
+                handler.postDelayed(this, 1_000L)
+            } else {
+                // Break complete celebration
+                view.findViewById<TextView>(R.id.tvOverlayTitle).text = context.getString(R.string.break_complete_title)
+                view.findViewById<TextView>(R.id.speechText).text = context.getString(R.string.break_complete_message)
+                view.findViewById<ProgressBar>(R.id.breakProgress).progress = 1000
+                character?.apply {
+                    animationPhase = HumanCompanionView.PHASE_IDLE
+                    currentExpression = HumanCompanionView.Expression.WINK_PLAYFUL
+                    triggerTapReaction()
+                }
+                onEyeBreakDone()
+                handler.postDelayed(timeout, 1_800L)
+            }
+        }
+    }
+
     val isOverlayActive: Boolean get() = root != null
 
     fun refreshPreferences() {
@@ -76,7 +111,6 @@ class OverlayWindowManager(
                 }
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    Log.w(TAG, "Speech playback failed; keeping the text reminder")
                     onDone(utteranceId)
                 }
             })
@@ -84,11 +118,12 @@ class OverlayWindowManager(
     }
 
     /** A task may only be acknowledged after its overlay was successfully attached. */
+    @SuppressLint("ClickableViewAccessibility")
     fun showOverlay(
         reason: OverlayReason,
         spokenText: String,
         taskTitle: String? = null,
-        forcedStyle: EntranceStyle? = null
+        taskId: String? = null
     ): Boolean {
         check(Looper.myLooper() == Looper.getMainLooper())
         if (closed || isOverlayActive) return false
@@ -98,82 +133,101 @@ class OverlayWindowManager(
         }
         generation++
         dismissing = false
-        val style = forcedStyle ?: when (CompanionPreferences.getPositionMode(context)) {
-            CompanionPreferences.POSITION_THREAD_DROP -> EntranceStyle.THREAD_DROP
-            CompanionPreferences.POSITION_LEFT_RIGHT -> EntranceStyle.LEFT_TO_RIGHT
-            CompanionPreferences.POSITION_RIGHT_LEFT -> EntranceStyle.RIGHT_TO_LEFT
-            CompanionPreferences.POSITION_TOP_RIGHT -> EntranceStyle.TOP_RIGHT_PEEK
-            CompanionPreferences.POSITION_BOTTOM -> EntranceStyle.BOTTOM_SLIDE
-            else -> EntranceStyle.entries.random()
+        val style = when (reason) {
+            OverlayReason.GENERAL_TEST -> EntranceStyle.LEFT_TO_RIGHT
+            OverlayReason.EYE_STRAIN -> EntranceStyle.BOTTOM_SLIDE
+            OverlayReason.WORK_TASK_REMINDER -> EntranceStyle.RIGHT_TO_LEFT
         }
         val view = LayoutInflater.from(context).inflate(R.layout.view_overlay_character, null) as ViewGroup
         val companion = view.findViewById<HumanCompanionView>(R.id.humanCompanionView)
         character = companion
-        if (style == EntranceStyle.THREAD_DROP || style == EntranceStyle.TOP_RIGHT_PEEK) {
-            // The window hangs from the top edge, so the companion leads and the bubble sits below.
-            view.removeView(companion)
-            view.addView(companion, 0)
-            // Tuck the bubble's top edge over the bottom of the 3D view, hiding where the body is cut off.
-            val bubble = view.findViewById<View>(R.id.speechBubbleContainer)
-            (bubble.layoutParams as ViewGroup.MarginLayoutParams).topMargin =
-                -(BUBBLE_OVERLAP_DP * context.resources.displayMetrics.density).toInt()
-        }
+
         companion.apply {
             reducedMotion = CompanionPreferences.isReducedMotion(context)
-            displayMode = when (style) {
-                EntranceStyle.THREAD_DROP -> HumanCompanionView.DisplayMode.THREAD_DROP
-                EntranceStyle.TOP_RIGHT_PEEK -> HumanCompanionView.DisplayMode.TOP_RIGHT_PEEK
-                else -> HumanCompanionView.DisplayMode.FULL_BODY
-            }
+            displayMode = HumanCompanionView.DisplayMode.FULL_BODY
             walkDirection = if (style == EntranceStyle.RIGHT_TO_LEFT) -1 else 1
             animationPhase = when (style) {
                 EntranceStyle.LEFT_TO_RIGHT, EntranceStyle.RIGHT_TO_LEFT -> HumanCompanionView.PHASE_WALK_IN
-                else -> HumanCompanionView.PHASE_IDLE
+                EntranceStyle.BOTTOM_SLIDE -> HumanCompanionView.PHASE_IDLE
             }
             currentExpression = when (reason) {
-                OverlayReason.WATER_REMINDER -> HumanCompanionView.Expression.HAPPY_WATER
                 OverlayReason.EYE_STRAIN -> HumanCompanionView.Expression.TIRED_EYES
                 OverlayReason.WORK_TASK_REMINDER -> HumanCompanionView.Expression.TASK_REMINDER
                 OverlayReason.GENERAL_TEST -> HumanCompanionView.Expression.WINK_PLAYFUL
             }
-            contentDescription = context.getString(R.string.dismiss_reminder)
-            setOnClickListener { dismiss() }
+            contentDescription = context.getString(R.string.tap_companion)
         }
-        // Transparent parts of the window still swallow touches, so any tap on it dismisses.
-        view.setOnClickListener { dismiss() }
-        val title = context.getString(when (reason) {
-            OverlayReason.WATER_REMINDER -> R.string.water_title
-            OverlayReason.EYE_STRAIN -> R.string.eye_title
-            OverlayReason.WORK_TASK_REMINDER -> R.string.tasks_title
-            OverlayReason.GENERAL_TEST -> R.string.companion_title
-        })
-        view.findViewById<TextView>(R.id.speechText).text =
-            context.getString(R.string.overlay_message, title, taskTitle ?: spokenText)
-        view.findViewById<View>(R.id.speechBubbleContainer).apply {
-            visibility = View.VISIBLE
-            contentDescription = context.getString(R.string.overlay_accessibility, title, taskTitle ?: spokenText)
-            setOnClickListener { dismiss() }
-        }
+
+        configureCardForReason(view, reason, spokenText, taskTitle, taskId)
+
         val density = context.resources.displayMetrics.density
         val screen = context.resources.displayMetrics
-        val width = (280 * density).toInt().coerceAtMost(screen.widthPixels)
-        val height = (360 * density).toInt().coerceAtMost(screen.heightPixels - (48 * density).toInt())
+        val width = (276 * density).toInt().coerceAtMost(screen.widthPixels)
+        val height = (370 * density).toInt().coerceAtMost(screen.heightPixels - (48 * density).toInt())
         val animate = ValueAnimator.areAnimatorsEnabled() && !companion.reducedMotion
-        // While the window waits for the 3D body it is invisible and must not swallow touches.
-        val params = WindowManager.LayoutParams(width, height,
+
+        val params = WindowManager.LayoutParams(
+            width,
+            height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-            PixelFormat.TRANSLUCENT).apply {
-            gravity = when (style) {
-                EntranceStyle.THREAD_DROP -> Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                EntranceStyle.TOP_RIGHT_PEEK -> Gravity.TOP or Gravity.END
-                else -> Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            }
-            y = (24 * density).toInt()
-            // Fully transparent while waiting, so Android lets touches pass straight through it.
-            alpha = 0f
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            x = ((screen.widthPixels - width) / 2).coerceAtLeast(0)
+            y = (28 * density).toInt()
+            alpha = 1f
         }
+        currentParams = params
+
+        // Draggable companion + tap to wave!
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        var startRawX = 0f
+        var startRawY = 0f
+        var startWinX = 0
+        var startWinY = 0
+        var dragging = false
+        val dragListener = View.OnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startRawX = event.rawX
+                    startRawY = event.rawY
+                    startWinX = params.x
+                    startWinY = params.y
+                    dragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - startRawX
+                    val dy = event.rawY - startRawY
+                    if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        dragging = true
+                        handler.removeCallbacks(timeout)
+                    }
+                    if (dragging && root === view && !dismissing) {
+                        params.x = (startWinX + dx.toInt()).coerceIn(0, (screen.widthPixels - width).coerceAtLeast(0))
+                        // Gravity.BOTTOM increases y upwards
+                        params.y = (startWinY - dy.toInt()).coerceIn(0, (screen.heightPixels - height).coerceAtLeast(0))
+                        try {
+                            windowManager.updateViewLayout(view, params)
+                        } catch (_: IllegalArgumentException) {
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (!dragging) {
+                        companion.triggerTapReaction()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+        companion.setOnTouchListener(dragListener)
+
         try {
             windowManager.addView(view, params)
         } catch (error: WindowManager.BadTokenException) {
@@ -183,68 +237,116 @@ class OverlayWindowManager(
         }
         root = view
         prepareVoice()
-        // The window alpha changes in the compositor right away, but the view's own redraw (spinner
-        // gone, body frame drawn) lands a frame later; keeping the view transparent until then means
-        // the first visible frame is always a fresh one, even when motion is reduced.
-        view.alpha = 0f
+
         if (animate) {
             when (style) {
-                EntranceStyle.THREAD_DROP, EntranceStyle.TOP_RIGHT_PEEK -> view.translationY = -height * 0.6f
-                EntranceStyle.BOTTOM_SLIDE -> view.translationY = height * 0.6f
-                EntranceStyle.LEFT_TO_RIGHT -> view.translationX = -width.toFloat()
-                EntranceStyle.RIGHT_TO_LEFT -> view.translationX = width.toFloat()
+                EntranceStyle.BOTTOM_SLIDE -> view.translationY = height * 0.45f
+                EntranceStyle.LEFT_TO_RIGHT -> view.translationX = -width * 0.85f
+                EntranceStyle.RIGHT_TO_LEFT -> view.translationX = width * 0.85f
             }
-        }
-        // Appear once the 3D body is on screen (or after a short wait), never as an empty frame.
-        var entered = false
-        val enter = Runnable {
-            if (entered || root !== view || dismissing) return@Runnable
-            entered = true
-            companion.onRenderStateChanged = null
-            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-            params.alpha = 1f
-            try {
-                windowManager.updateViewLayout(view, params)
-            } catch (error: IllegalArgumentException) {
-                Log.w(TAG, "Reminder window vanished before it could enter", error)
-                // Free the slot so the next reminder is not blocked by a window that is gone.
-                finishDismissal()
-                return@Runnable
-            }
-            if (animate) {
-                val isWalkingEntrance = style == EntranceStyle.LEFT_TO_RIGHT || style == EntranceStyle.RIGHT_TO_LEFT
-                val duration = if (isWalkingEntrance) 1200L else 650L
-                view.animate().alpha(1f).translationX(0f).translationY(0f)
-                    .setDuration(duration).setInterpolator(DecelerateInterpolator())
-                    .withEndAction { speak(spokenText) }.start()
-            } else {
-                // Reduced motion: no movement, only a short fade.
-                view.animate().alpha(1f).setDuration(REDUCED_MOTION_FADE_MS)
-                    .withEndAction { speak(spokenText) }.start()
-            }
-            scheduleTimeout(spokenText)
-        }
-        if (companion.renderState != HumanCompanionView.RenderState.LOADING) {
-            // The renderer already finished or failed while attaching; show it right away.
-            handler.post(enter)
+            val isWalk = style == EntranceStyle.LEFT_TO_RIGHT || style == EntranceStyle.RIGHT_TO_LEFT
+            val duration = if (isWalk) 1_100L else 550L
+            view.animate().translationX(0f).translationY(0f)
+                .setDuration(duration).setInterpolator(DecelerateInterpolator())
+                .withEndAction {
+                    companion.animationPhase = HumanCompanionView.PHASE_IDLE
+                    companion.triggerTapReaction()
+                    speak(spokenText)
+                }.start()
         } else {
-            companion.onRenderStateChanged = { state ->
-                if (state != HumanCompanionView.RenderState.LOADING) enter.run()
-            }
+            companion.animationPhase = HumanCompanionView.PHASE_IDLE
+            speak(spokenText)
         }
-        handler.postDelayed(enter, MAX_MODEL_WAIT_MS)
         return true
     }
 
-    /** Text remains readable even when TTS is absent, fails, or never calls back. */
-    private fun scheduleTimeout(spokenText: String) {
+    private fun configureCardForReason(
+        view: View,
+        reason: OverlayReason,
+        spokenText: String,
+        taskTitle: String?,
+        taskId: String?
+    ) {
+        val titleView = view.findViewById<TextView>(R.id.tvOverlayTitle)
+        val bodyView = view.findViewById<TextView>(R.id.speechText)
+        val progress = view.findViewById<ProgressBar>(R.id.breakProgress)
+        val btnPrimary = view.findViewById<Button>(R.id.btnOverlayPrimary)
+        val btnSecondary = view.findViewById<Button>(R.id.btnOverlaySecondary)
+
+        handler.removeCallbacks(breakTick)
         handler.removeCallbacks(timeout)
-        handler.postDelayed(timeout, (spokenText.length * 65L + 3_000L).coerceIn(7_000L, 18_000L))
+
+        when (reason) {
+            OverlayReason.EYE_STRAIN -> {
+                breakRemainingSeconds = BREAK_DURATION_SECONDS
+                progress.visibility = View.VISIBLE
+                updateBreakCard(view)
+                btnPrimary.setText(R.string.overlay_done)
+                btnSecondary.setText(R.string.overlay_snooze_5m)
+                btnSecondary.visibility = View.VISIBLE
+                btnPrimary.setOnClickListener {
+                    handler.removeCallbacks(breakTick)
+                    onEyeBreakDone()
+                    dismiss()
+                }
+                btnSecondary.setOnClickListener {
+                    handler.removeCallbacks(breakTick)
+                    onEyeBreakSnooze()
+                    dismiss()
+                }
+                handler.postDelayed(breakTick, 1_000L)
+            }
+            OverlayReason.WORK_TASK_REMINDER -> {
+                titleView.setText(R.string.overlay_task_label)
+                bodyView.text = taskTitle ?: spokenText
+                progress.visibility = View.GONE
+                btnPrimary.setText(R.string.overlay_done)
+                btnPrimary.setOnClickListener { dismiss() }
+                if (taskId != null) {
+                    btnSecondary.setText(R.string.overlay_snooze_10m)
+                    btnSecondary.visibility = View.VISIBLE
+                    btnSecondary.setOnClickListener {
+                        onTaskSnooze(taskId)
+                        dismiss()
+                    }
+                } else {
+                    btnSecondary.visibility = View.GONE
+                }
+                handler.postDelayed(timeout, 15_000L)
+            }
+            OverlayReason.GENERAL_TEST -> {
+                titleView.setText(R.string.app_name)
+                bodyView.text = context.getString(R.string.overlay_preview_body)
+                progress.visibility = View.GONE
+                btnPrimary.setText(R.string.start_break_short)
+                btnSecondary.setText(R.string.overlay_hide)
+                btnSecondary.visibility = View.VISIBLE
+                btnPrimary.setOnClickListener {
+                    character?.apply {
+                        animationPhase = HumanCompanionView.PHASE_IDLE
+                        currentExpression = HumanCompanionView.Expression.TIRED_EYES
+                    }
+                    configureCardForReason(view, OverlayReason.EYE_STRAIN, context.getString(R.string.eye_message), null, null)
+                }
+                btnSecondary.setOnClickListener { dismiss() }
+                handler.postDelayed(timeout, 15_000L)
+            }
+        }
+    }
+
+    private fun updateBreakCard(view: View) {
+        view.findViewById<TextView>(R.id.tvOverlayTitle).text =
+            context.getString(R.string.break_countdown_title, breakRemainingSeconds)
+        view.findViewById<TextView>(R.id.speechText).setText(R.string.eye_message)
+        val elapsed = BREAK_DURATION_SECONDS - breakRemainingSeconds
+        view.findViewById<ProgressBar>(R.id.breakProgress).progress =
+            (elapsed * 1000 / BREAK_DURATION_SECONDS).coerceIn(0, 1000)
     }
 
     private fun attachmentFailed(error: RuntimeException): Boolean {
         Log.e(TAG, "Could not attach reminder window", error)
         character = null
+        currentParams = null
         return false
     }
 
@@ -262,12 +364,13 @@ class OverlayWindowManager(
         if (dismissing) return
         dismissing = true
         handler.removeCallbacks(timeout)
+        handler.removeCallbacks(breakTick)
         view.animate().cancel()
         tts?.stop()
         if (!ValueAnimator.areAnimatorsEnabled() || CompanionPreferences.isReducedMotion(context)) {
             finishDismissal()
         } else {
-            view.animate().alpha(0f).setDuration(220L).withEndAction { finishDismissal() }.start()
+            view.animate().alpha(0f).setDuration(200L).withEndAction { finishDismissal() }.start()
         }
     }
 
@@ -286,6 +389,7 @@ class OverlayWindowManager(
         }
         root = null
         character = null
+        currentParams = null
         dismissing = false
     }
 
@@ -299,8 +403,6 @@ class OverlayWindowManager(
 
     private companion object {
         const val TAG = "OverlayWindowManager"
-        const val MAX_MODEL_WAIT_MS = 1_500L
-        const val REDUCED_MOTION_FADE_MS = 160L
-        const val BUBBLE_OVERLAP_DP = 8
+        const val BREAK_DURATION_SECONDS = 20
     }
 }

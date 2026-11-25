@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Reminder overlay. A vertical stack so the speech bubble can never cover the companion, even
-     with large system fonts; OverlayWindowManager puts the companion first for the top entrances. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/overlayRoot"
     android:layout_width="match_parent"
@@ -8,52 +6,100 @@
     android:background="@android:color/transparent"
     android:clipChildren="false"
     android:clipToPadding="false"
-    android:gravity="center_horizontal"
+    android:gravity="center_horizontal|bottom"
     android:orientation="vertical"
-    android:paddingStart="6dp"
-    android:paddingTop="6dp"
-    android:paddingEnd="6dp"
-    android:paddingBottom="6dp">
+    android:padding="6dp">
 
     <LinearLayout
         android:id="@+id/speechBubbleContainer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="4dp"
-        android:layout_marginTop="2dp"
-        android:layout_marginEnd="4dp"
-        android:layout_marginBottom="2dp"
+        android:layout_marginBottom="4dp"
         android:background="@drawable/bg_speech_bubble"
-        android:elevation="6dp"
+        android:elevation="8dp"
         android:focusable="true"
-        android:minHeight="48dp"
+        android:minWidth="210dp"
         android:orientation="vertical"
         android:paddingStart="16dp"
-        android:paddingTop="10dp"
+        android:paddingTop="12dp"
         android:paddingEnd="16dp"
-        android:paddingBottom="10dp"
-        android:visibility="invisible">
+        android:paddingBottom="12dp">
+
+        <TextView
+            android:id="@+id/tvOverlayTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="@color/primary"
+            android:textSize="12sp"
+            android:letterSpacing="0.04" />
 
         <TextView
             android:id="@+id/speechText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:fontFamily="sans-serif-medium"
             android:lineSpacingExtra="2dp"
-            android:maxLines="6"
-            android:maxWidth="236dp"
-            android:text="@string/water_message"
+            android:maxLines="4"
+            android:maxWidth="240dp"
             android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:textSize="14sp" />
 
+        <ProgressBar
+            android:id="@+id/breakProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="5dp"
+            android:layout_marginTop="8dp"
+            android:max="1000"
+            android:progress="0"
+            android:progressTint="@color/primary"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/overlayActionsRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnOverlaySecondary"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_pill_inactive"
+                android:textColor="@color/text_primary"
+                android:textAllCaps="false"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium" />
+
+            <Button
+                android:id="@+id/btnOverlayPrimary"
+                android:layout_width="wrap_content"
+                android:layout_height="34dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:background="@drawable/bg_pill_active"
+                android:textColor="@color/on_primary"
+                android:textAllCaps="false"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
     </LinearLayout>
 
     <com.wellness.overlay3d.overlay.HumanCompanionView
         android:id="@+id/humanCompanionView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:minHeight="96dp" />
+        android:layout_width="180dp"
+        android:layout_height="190dp" />
 
 </LinearLayout>

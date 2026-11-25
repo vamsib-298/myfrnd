@@ -1,45 +1,47 @@
 package com.wellness.overlay3d.model
 
-/** Interval deadlines use elapsed time; calendar tasks use wall-clock time separately. */
+/** Screen Break deadline uses continuous screen-active elapsed time; calendar tasks use wall-clock time separately. */
 class ReminderSchedule(
     now: Long,
-    waterMinutes: Int,
     eyeMinutes: Int,
-    screenActive: Boolean
+    screenActive: Boolean,
+    private var eyeEnabled: Boolean = true
 ) {
-    var waterInterval = waterMinutes * 60_000L
-        private set
     var eyeInterval = eyeMinutes * 60_000L
         private set
-    var nextWater = now + waterInterval
-        private set
-    var nextEye: Long? = if (screenActive) now + eyeInterval else null
+    var nextEye: Long? = if (screenActive && eyeEnabled) now + eyeInterval else null
         private set
 
-    fun configure(now: Long, waterMinutes: Int, eyeMinutes: Int) {
-        require(waterMinutes > 0 && eyeMinutes > 0)
-        val water = waterMinutes * 60_000L
+    fun configure(now: Long, eyeMinutes: Int, enabled: Boolean = true) {
+        require(eyeMinutes > 0)
         val eye = eyeMinutes * 60_000L
-        if (water != waterInterval) nextWater = now + water
-        if (eye != eyeInterval && nextEye != null) nextEye = now + eye
-        waterInterval = water
+        if (!enabled) {
+            eyeEnabled = false
+            nextEye = null
+        } else {
+            val wasDisabled = !eyeEnabled
+            eyeEnabled = true
+            if (wasDisabled || (eye != eyeInterval && nextEye != null)) {
+                nextEye = now + eye
+            }
+        }
         eyeInterval = eye
     }
 
     fun screenChanged(now: Long, active: Boolean) {
-        if (!active) nextEye = null
+        if (!active || !eyeEnabled) nextEye = null
         else if (nextEye == null) nextEye = now + eyeInterval
     }
 
-    fun waterDelivered(now: Long) {
-        nextWater = now + waterInterval
+    fun eyeDelivered(now: Long) {
+        nextEye = if (eyeEnabled) now + eyeInterval else null
     }
 
-    fun eyeDelivered(now: Long) {
-        nextEye = now + eyeInterval
+    fun snoozeEye(now: Long, snoozeMinutes: Int = 5) {
+        nextEye = if (eyeEnabled) now + snoozeMinutes * 60_000L else null
     }
 
     fun nextDelay(now: Long, nextTaskDelay: Long?): Long =
-        listOfNotNull(nextWater - now, nextEye?.minus(now), nextTaskDelay)
-            .min().coerceAtLeast(0L)
+        listOfNotNull(nextEye?.minus(now), nextTaskDelay)
+            .minOrNull()?.coerceAtLeast(0L) ?: 60_000L
 }

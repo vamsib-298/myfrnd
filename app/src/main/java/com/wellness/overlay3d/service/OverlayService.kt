@@ -38,10 +38,14 @@ class OverlayService : Service() {
         const val ACTION_DEMO_NOW = "com.myfrnd.app.ACTION_DEMO_NOW"
         const val ACTION_STOP_SERVICE = "com.myfrnd.app.ACTION_STOP_SERVICE"
         const val ACTION_UPDATE_CONFIG = "com.myfrnd.app.ACTION_UPDATE_CONFIG"
-        const val ACTION_TRIGGER_WATER = "com.myfrnd.app.ACTION_TRIGGER_WATER"
         const val ACTION_TRIGGER_EYE_STRAIN = "com.myfrnd.app.ACTION_TRIGGER_EYE_STRAIN"
+        const val ACTION_SNOOZE_EYE_STRAIN = "com.myfrnd.app.ACTION_SNOOZE_EYE_STRAIN"
+        const val ACTION_COMPLETE_EYE_BREAK = "com.myfrnd.app.ACTION_COMPLETE_EYE_BREAK"
 
         fun startWithInitialDemo(context: Context) = start(context, ACTION_DEMO_NOW)
+        fun triggerScreenBreakNow(context: Context) = start(context, ACTION_TRIGGER_EYE_STRAIN)
+        fun snoozeScreenBreak(context: Context) = start(context, ACTION_SNOOZE_EYE_STRAIN)
+        fun completeScreenBreak(context: Context) = start(context, ACTION_COMPLETE_EYE_BREAK)
         fun updateConfiguration(context: Context) = start(context, ACTION_UPDATE_CONFIG)
 
         fun pause(context: Context) {
@@ -77,14 +81,17 @@ class OverlayService : Service() {
     private var destroyed = false
     private var runtimeError: Int? = null
     private var previewRequested = false
+    private var breakNowRequested = false
     private val evaluate = Runnable { evaluateReminders() }
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         if (!CompanionPreferences.isCompanionEnabled(this)) {
             stopSelf()
         } else {
-            schedule.configure(SystemClock.elapsedRealtime(),
-                CompanionPreferences.getWaterIntervalMinutes(this),
-                CompanionPreferences.getEyeStrainMinutes(this))
+            schedule.configure(
+                SystemClock.elapsedRealtime(),
+                CompanionPreferences.getEyeStrainMinutes(this),
+                CompanionPreferences.isScreenBreakEnabled(this)
+            )
             overlays.refreshPreferences()
             requestEvaluation()
         }
@@ -103,10 +110,31 @@ class OverlayService : Service() {
         super.onCreate()
         startServiceInForeground()
         screenActive = isScreenAvailable()
-        schedule = ReminderSchedule(SystemClock.elapsedRealtime(),
-            CompanionPreferences.getWaterIntervalMinutes(this),
-            CompanionPreferences.getEyeStrainMinutes(this), screenActive)
-        overlays = OverlayWindowManager(this) { requestEvaluation(500L) }
+        schedule = ReminderSchedule(
+            SystemClock.elapsedRealtime(),
+            CompanionPreferences.getEyeStrainMinutes(this),
+            screenActive,
+            CompanionPreferences.isScreenBreakEnabled(this)
+        )
+        overlays = OverlayWindowManager(
+            context = this,
+            onDismissed = { requestEvaluation(400L) },
+            onEyeBreakDone = {
+                schedule.eyeDelivered(SystemClock.elapsedRealtime())
+                publishStatus()
+            },
+            onEyeBreakSnooze = {
+                schedule.snoozeEye(SystemClock.elapsedRealtime(), 5)
+                publishStatus()
+            },
+            onTaskSnooze = { taskId ->
+                try {
+                    TaskManager.snoozeReminder(this, taskId, 10 * 60_000L)
+                } catch (error: TaskStorageException) {
+                    Log.e(TAG, "Could not snooze task", error)
+                }
+            }
+        )
         overlays.refreshPreferences()
         CompanionPreferences.getPrefs(this).registerOnSharedPreferenceChangeListener(preferenceListener)
         TaskManager.preferences(this).registerOnSharedPreferenceChangeListener(taskListener)
@@ -129,12 +157,11 @@ class OverlayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_DEMO_NOW) previewRequested = true
-        if (screenActive && !overlays.isOverlayActive) {
-            when (intent?.action) {
-                ACTION_TRIGGER_WATER -> overlays.showOverlay(OverlayWindowManager.OverlayReason.WATER_REMINDER, getString(R.string.water_message))
-                ACTION_TRIGGER_EYE_STRAIN -> overlays.showOverlay(OverlayWindowManager.OverlayReason.EYE_STRAIN, getString(R.string.eye_message))
-            }
+        when (intent?.action) {
+            ACTION_DEMO_NOW -> previewRequested = true
+            ACTION_TRIGGER_EYE_STRAIN -> breakNowRequested = true
+            ACTION_SNOOZE_EYE_STRAIN -> schedule.snoozeEye(SystemClock.elapsedRealtime(), 5)
+            ACTION_COMPLETE_EYE_BREAK -> schedule.eyeDelivered(SystemClock.elapsedRealtime())
         }
         requestEvaluation()
         return START_STICKY
@@ -151,10 +178,15 @@ class OverlayService : Service() {
     }
 
     private fun publishStatus() {
-        CompanionRuntime.publish(CompanionStatus(
-            running = true, screenActive = screenActive,
-            nextWater = schedule.nextWater, nextEye = schedule.nextEye, error = runtimeError
-        ))
+        CompanionRuntime.publish(
+            CompanionStatus(
+                running = true,
+                screenActive = screenActive,
+                screenBreakEnabled = CompanionPreferences.isScreenBreakEnabled(this),
+                nextEye = schedule.nextEye,
+                error = runtimeError
+            )
+        )
     }
 
     private fun evaluateReminders() {
@@ -167,8 +199,8 @@ class OverlayService : Service() {
         if (!screenActive || overlays.isOverlayActive) return
         val now = SystemClock.elapsedRealtime()
         val wallTime = System.currentTimeMillis()
-        val pending = try {
-            TaskManager.getPendingReminders(this)
+        val pendingTimed = try {
+            TaskManager.getPendingTimedReminders(this)
         } catch (error: TaskStorageException) {
             Log.e(TAG, "Reminders could not be loaded; saved data was not modified", error)
             runtimeError = R.string.task_storage_error
@@ -177,47 +209,62 @@ class OverlayService : Service() {
             return
         }
         runtimeError = null
-        val task = pending.firstOrNull()
+        val task = pendingTimed.firstOrNull()
         val shown = when {
             task != null && task.timestampMillis <= wallTime -> {
-                overlays.showOverlay(OverlayWindowManager.OverlayReason.WORK_TASK_REMINDER,
-                    getString(R.string.task_message, task.title), task.title).also { attached ->
+                overlays.showOverlay(
+                    reason = OverlayWindowManager.OverlayReason.WORK_TASK_REMINDER,
+                    spokenText = getString(R.string.task_message, task.title),
+                    taskTitle = task.title,
+                    taskId = task.id
+                ).also { attached ->
                     if (attached) TaskManager.markDelivered(this, task.id)
                 }
             }
-            previewRequested -> {
-                overlays.showOverlay(OverlayWindowManager.OverlayReason.GENERAL_TEST,
-                    getString(R.string.demo_message)).also { if (it) previewRequested = false }
+            breakNowRequested -> {
+                overlays.showOverlay(
+                    reason = OverlayWindowManager.OverlayReason.EYE_STRAIN,
+                    spokenText = getString(R.string.eye_message)
+                ).also { if (it) { breakNowRequested = false; schedule.eyeDelivered(now) } }
             }
-            now >= schedule.nextWater -> {
-                overlays.showOverlay(OverlayWindowManager.OverlayReason.WATER_REMINDER,
-                    getString(R.string.water_message)).also { if (it) schedule.waterDelivered(now) }
+            previewRequested -> {
+                overlays.showOverlay(
+                    reason = OverlayWindowManager.OverlayReason.GENERAL_TEST,
+                    spokenText = getString(R.string.demo_message)
+                ).also { if (it) previewRequested = false }
             }
             schedule.nextEye?.let { now >= it } == true -> {
-                overlays.showOverlay(OverlayWindowManager.OverlayReason.EYE_STRAIN,
-                    getString(R.string.eye_message)).also { if (it) schedule.eyeDelivered(now) }
+                overlays.showOverlay(
+                    reason = OverlayWindowManager.OverlayReason.EYE_STRAIN,
+                    spokenText = getString(R.string.eye_message)
+                ).also { if (it) schedule.eyeDelivered(now) }
             }
             else -> false
         }
         publishStatus()
         if (!shown) {
-            // A failed attachment is retried, never acknowledged as delivered.
             requestEvaluation(schedule.nextDelay(now, task?.timestampMillis?.minus(wallTime)).coerceAtLeast(1_000L))
         }
     }
 
     private fun startServiceInForeground() {
-        val channel = NotificationChannel(NOTIFICATION_CHANNEL_ID, getString(R.string.notification_channel),
-            NotificationManager.IMPORTANCE_LOW).apply {
+        val channel = NotificationChannel(
+            NOTIFICATION_CHANNEL_ID, getString(R.string.notification_channel),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
             description = getString(R.string.notification_description)
             setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        val open = PendingIntent.getActivity(this, 100, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val stop = PendingIntent.getService(this, 103,
+        val open = PendingIntent.getActivity(
+            this, 100, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val stop = PendingIntent.getService(
+            this, 103,
             Intent(this, OverlayService::class.java).setAction(ACTION_STOP_SERVICE),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.notification_title))
@@ -228,8 +275,10 @@ class OverlayService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(0, getString(R.string.pause), stop)
             .build()
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
-            if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
+        ServiceCompat.startForeground(
+            this, NOTIFICATION_ID, notification,
+            if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

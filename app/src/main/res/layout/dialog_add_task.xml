@@ -1,32 +1,75 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
     android:fillViewport="true">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="vertical" android:padding="24dp">
-        <TextView style="@style/BodyText" android:text="@string/task_dialog_description" />
-        <TextView style="@style/BodyText" android:text="@string/task_label"
-            android:labelFor="@id/etTaskTitle" android:layout_marginTop="16dp" />
-        <EditText android:id="@+id/etTaskTitle" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:minHeight="56dp"
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            style="@style/BodyText"
+            android:text="@string/task_dialog_description" />
+
+        <TextView
+            style="@style/BodyText"
+            android:text="@string/task_label"
+            android:labelFor="@id/etTaskTitle"
+            android:layout_marginTop="14dp" />
+
+        <EditText
+            android:id="@+id/etTaskTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="56dp"
             android:inputType="textCapSentences|textMultiLine"
-            android:maxLength="160" android:maxLines="4" android:gravity="top|start"
-            android:paddingTop="12dp" android:paddingBottom="12dp"
-            android:textSize="16sp" android:importantForAutofill="no" />
-        <TextView style="@style/BodyText" android:text="@string/when_label"
-            android:layout_marginTop="16dp" />
-        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:scrollbars="none"
-            android:requiresFadingEdge="horizontal" android:fadingEdgeLength="@dimen/chip_row_fade">
-            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content">
+            android:maxLength="160"
+            android:maxLines="4"
+            android:gravity="top|start"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
+            android:textSize="16sp"
+            android:importantForAutofill="no" />
+
+        <TextView
+            style="@style/BodyText"
+            android:text="@string/when_label"
+            android:layout_marginTop="14dp" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:scrollbars="none"
+            android:requiresFadingEdge="horizontal"
+            android:fadingEdgeLength="@dimen/chip_row_fade">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+
+                <Button android:id="@+id/pillNoteOnly" style="@style/Choice" android:text="@string/note_only_chip" />
                 <Button android:id="@+id/pillIn15Min" style="@style/Choice" android:text="@string/in_fifteen_minutes" />
                 <Button android:id="@+id/pillIn1Hour" style="@style/Choice" android:text="@string/in_one_hour" />
                 <Button android:id="@+id/pillTodayEvening" style="@style/Choice" android:text="@string/next_evening" />
                 <Button android:id="@+id/pillTomorrowMorning" style="@style/Choice" android:text="@string/tomorrow_morning" />
             </LinearLayout>
         </HorizontalScrollView>
-        <Button android:id="@+id/btnPickCustomDateTime" style="@style/PrimaryButton"
+
+        <Button
+            android:id="@+id/btnPickCustomDateTime"
+            style="@style/Choice"
+            android:layout_width="match_parent"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="0dp"
             android:text="@string/custom_time" />
-        <TextView android:id="@+id/tvSelectedDateTime" style="@style/BodyText"
+
+        <TextView
+            android:id="@+id/tvSelectedDateTime"
+            style="@style/BodyText"
+            android:layout_marginTop="10dp"
             android:accessibilityLiveRegion="polite" />
     </LinearLayout>
 </ScrollView>

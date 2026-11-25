@@ -94,4 +94,14 @@ class TaskManagerTest {
         assertThrows(IllegalArgumentException::class.java) { TaskReminder(title = " ", timestampMillis = 200L) }
         assertThrows(IllegalArgumentException::class.java) { TaskReminder(title = "x".repeat(161), timestampMillis = 200L) }
     }
+
+    @Test fun quickNotesDoNotAppearInTimedRemindersAndCanBeSnoozed() {
+        val note = TaskManager.addNote(context, "Buy coffee beans", 500L)
+        assertTrue(TaskManager.getPendingTimedReminders(context).isEmpty())
+        assertEquals(listOf(note), TaskManager.getPendingReminders(context))
+        assertTrue(TaskManager.snoozeReminder(context, note.id, 600_000L, 1_000L))
+        val snoozed = TaskManager.getPendingTimedReminders(context).single()
+        assertFalse(snoozed.isNote)
+        assertEquals(601_000L, snoozed.timestampMillis)
+    }
 }

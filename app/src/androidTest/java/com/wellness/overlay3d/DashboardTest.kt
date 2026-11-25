@@ -9,7 +9,6 @@ import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.*
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.*
-import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.wellness.overlay3d.overlay.HumanCompanionView
@@ -42,7 +41,6 @@ class DashboardTest {
     @After fun close() { scenario.close() }
 
     @Test fun startsPausedWithoutRequestingPermissions() {
-        onView(withId(R.id.switchEnableCompanion)).check(matches(isNotChecked()))
         assertFalse(CompanionPreferences.isCompanionEnabled(context))
         assertFalse(CompanionRuntime.status.value.running)
     }
@@ -67,19 +65,16 @@ class DashboardTest {
     }
 
     @Test fun changingIntervalsWhilePausedDoesNotStartService() {
-        onView(withId(R.id.chipEye20)).perform(scrollTo(), click())
-        onView(withId(R.id.chipWater45)).perform(scrollTo(), click())
-        assertEquals(20, CompanionPreferences.getEyeStrainMinutes(context))
-        assertEquals(45, CompanionPreferences.getWaterIntervalMinutes(context))
+        onView(withId(R.id.chipEye30)).perform(scrollTo(), click())
+        assertEquals(30, CompanionPreferences.getEyeStrainMinutes(context))
         assertFalse(CompanionRuntime.status.value.running)
         scenario.recreate()
-        onView(withId(R.id.chipEye20)).check(matches(isSelected()))
-        onView(withId(R.id.chipWater45)).check(matches(isSelected()))
+        onView(withId(R.id.chipEye30)).check(matches(isSelected()))
     }
 
     @Test fun customCompanionRespondsToRealTap() {
-        onView(withId(R.id.liveDashboardCompanion)).perform(scrollTo(), click(), click())
-        onView(withId(R.id.tvLiveCompanionSpeech)).check(matches(withText(R.string.water_message)))
+        onView(withId(R.id.liveDashboardCompanion)).perform(scrollTo(), click())
+        onView(withId(R.id.tvLiveCompanionSpeech)).check(matches(withText(R.string.demo_cheer)))
     }
 
     @Test fun blankTaskShowsValidationAndKeepsEditorOpen() {
@@ -89,7 +84,7 @@ class DashboardTest {
         assertTrue(TaskManager.getPendingReminders(context).isEmpty())
     }
 
-    @Test fun reminderCrudPersistsAndDeleteRequiresConfirmation() {
+    @Test fun reminderCrudAndCompletePersists() {
         onView(withId(R.id.btnAddNewTask)).perform(scrollTo(), click())
         onView(withId(R.id.etTaskTitle)).perform(replaceText("Finish the report"), closeSoftKeyboard())
         onView(withText(R.string.save)).perform(click())
@@ -101,29 +96,17 @@ class DashboardTest {
         scenario.recreate()
         onView(withId(R.id.tvTaskTitle)).check(matches(withText("Review the report")))
         onView(withId(R.id.btnDeleteTask)).perform(scrollTo(), click())
-        onView(withText(R.string.delete_confirmation)).inRoot(isDialog()).check(matches(isDisplayed()))
-        onView(withId(android.R.id.button2)).inRoot(isDialog()).perform(click())
-        assertEquals(1, TaskManager.getPendingReminders(context).size)
-        onView(withId(R.id.btnDeleteTask)).perform(click())
-        onView(withId(android.R.id.button1)).inRoot(isDialog()).perform(click())
         assertTrue(TaskManager.getPendingReminders(context).isEmpty())
     }
 
-    @Test fun fifteenMinutePresetSchedulesTheMinuteItShowsAndStaysSelected() {
+    @Test fun quickNoteSavesWithoutTimer() {
         onView(withId(R.id.btnAddNewTask)).perform(scrollTo(), click())
-        onView(withId(R.id.pillIn1Hour)).check(matches(isSelected()))
-        onView(withId(R.id.etTaskTitle)).perform(replaceText("Stand up and stretch"), closeSoftKeyboard())
-        val before = System.currentTimeMillis()
-        onView(withId(R.id.pillIn15Min)).perform(scrollTo(), click())
-        val after = System.currentTimeMillis()
-        onView(withId(R.id.pillIn15Min)).check(matches(isSelected()))
-        listOf(R.id.pillIn1Hour, R.id.pillTodayEvening, R.id.pillTomorrowMorning).forEach {
-            onView(withId(it)).check(matches(isNotSelected()))
-        }
+        onView(withId(R.id.etTaskTitle)).perform(replaceText("Remember posture"), closeSoftKeyboard())
+        onView(withId(R.id.pillNoteOnly)).perform(scrollTo(), click())
         onView(withText(R.string.save)).perform(click())
-        val scheduled = TaskManager.getPendingReminders(context).single().timestampMillis
-        assertEquals("due time must be a whole minute, like its label", 0L, scheduled % 60_000L)
-        assertTrue(scheduled in (before + 840_000L)..(after + 900_000L))
+        val saved = TaskManager.getPendingReminders(context).single()
+        assertTrue(saved.isNote)
+        assertTrue(TaskManager.getPendingTimedReminders(context).isEmpty())
     }
 
     @Test fun taskDraftSurvivesActivityRecreation() {

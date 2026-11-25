@@ -17,294 +17,255 @@
             android:orientation="vertical"
             android:padding="@dimen/dashboard_padding">
 
-            <!-- Top Header -->
+            <!-- Clean Top Bar -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
-                <LinearLayout
+                <TextView
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:text="@string/app_name"
+                    android:textSize="26sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="@color/text_primary"
+                    android:tag="heading" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/app_name"
-                        android:textSize="28sp"
-                        android:fontFamily="sans-serif-medium"
-                        android:textColor="@color/text_primary"
-                        android:tag="heading" />
-
-                    <TextView
-                        style="@style/BodyText"
-                        android:text="@string/brand_caption"
-                        android:letterSpacing="0.1"
-                        android:layout_marginTop="2dp"
-                        android:textSize="11sp" />
-                </LinearLayout>
-
-                <TextView
+                <Button
                     android:id="@+id/tvEngineStatusBadge"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="14dp"
-                    android:paddingTop="8dp"
-                    android:paddingEnd="14dp"
-                    android:paddingBottom="8dp"
+                    android:layout_height="38dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
                     android:background="@drawable/bg_pill_inactive"
                     android:text="@string/status_ready"
-                    android:textSize="12sp"
+                    android:textAllCaps="false"
+                    android:textSize="13sp"
                     android:fontFamily="sans-serif-medium"
                     android:textColor="@color/primary"
                     android:accessibilityLiveRegion="polite" />
             </LinearLayout>
 
-            <!-- Hero Companion Preview Box -->
-            <LinearLayout
-                style="@style/Card"
-                android:background="@drawable/bg_hero_glow"
-                android:layout_marginTop="16dp">
-
-                <TextView
-                    style="@style/SectionTitle"
-                    android:text="@string/hero_title"
-                    android:textSize="22sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <TextView
-                    style="@style/BodyText"
-                    android:text="@string/hero_description" />
-
-                <!-- The 3D Person Companion Preview -->
-                <com.wellness.overlay3d.overlay.HumanCompanionView
-                    android:id="@+id/liveDashboardCompanion"
-                    android:layout_width="match_parent"
-                    android:layout_height="260dp"
-                    android:layout_marginTop="8dp"
-                    android:contentDescription="@string/tap_companion" />
-
-                <TextView
-                    android:id="@+id/tvLiveCompanionSpeech"
-                    style="@style/BodyText"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/demo_message"
-                    android:gravity="center"
-                    android:textColor="@color/text_primary"
-                    android:accessibilityLiveRegion="polite" />
-
-                <!-- Interactive Pose / Action Chips -->
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:scrollbars="none"
-                    android:requiresFadingEdge="horizontal"
-                    android:fadingEdgeLength="@dimen/chip_row_fade">
-
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content">
-
-                        <Button android:id="@+id/btnPoseWalk" style="@style/Choice" android:text="@string/pose_walk" />
-                        <Button android:id="@+id/btnPoseHappy" style="@style/Choice" android:text="@string/pose_cheer" />
-                        <Button android:id="@+id/btnPoseEyes" style="@style/Choice" android:text="@string/pose_eyes" />
-                        <Button android:id="@+id/btnPoseWater" style="@style/Choice" android:text="@string/pose_water" />
-                        <Button android:id="@+id/btnPoseTask" style="@style/Choice" android:text="@string/pose_focus" />
-                        <Button android:id="@+id/btnPoseThread" style="@style/Choice" android:text="@string/pose_drop" android:visibility="gone" />
-                    </LinearLayout>
-                </HorizontalScrollView>
-
-                <Button
-                    android:id="@+id/btnTestCompanionNow"
-                    style="@style/PrimaryButton"
-                    android:text="@string/preview_companion" />
-            </LinearLayout>
-
-            <!-- Single Overlay Permission Banner (Shown only when permission is needed) -->
+            <!-- Single Overlay Permission Banner (Hidden once granted) -->
             <LinearLayout
                 android:id="@+id/llMandatoryOverlayBanner"
                 style="@style/Card"
-                android:layout_marginTop="14dp">
+                android:layout_marginTop="14dp"
+                android:padding="16dp">
 
                 <TextView
                     style="@style/SectionTitle"
+                    android:textSize="17sp"
                     android:text="@string/permission_title" />
 
                 <TextView
                     style="@style/BodyText"
+                    android:textSize="13sp"
                     android:text="@string/permission_description" />
 
                 <Button
                     android:id="@+id/btnMandatoryGrant"
                     style="@style/PrimaryButton"
+                    android:layout_marginTop="12dp"
                     android:text="@string/grant_overlay" />
             </LinearLayout>
 
-            <!-- Companion Active Status Card -->
+            <TextView
+                android:id="@+id/tvRuntimeError"
+                style="@style/BodyText"
+                android:layout_marginTop="10dp"
+                android:textColor="@color/error"
+                android:accessibilityLiveRegion="polite"
+                android:visibility="gone" />
+
+            <!-- Companion Stage Card -->
             <LinearLayout
                 style="@style/Card"
-                android:layout_marginTop="14dp">
+                android:background="@drawable/bg_hero_glow"
+                android:layout_marginTop="14dp"
+                android:padding="16dp">
 
-                <androidx.appcompat.widget.SwitchCompat
-                    android:id="@+id/switchEnableCompanion"
+                <com.wellness.overlay3d.overlay.HumanCompanionView
+                    android:id="@+id/liveDashboardCompanion"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
-                    android:text="@string/enable_companion"
-                    android:textSize="17sp"
-                    android:textColor="@color/text_primary" />
+                    android:layout_height="220dp"
+                    android:contentDescription="@string/tap_companion" />
 
                 <TextView
-                    android:id="@+id/tvHeroSubtitle"
+                    android:id="@+id/tvLiveCompanionSpeech"
                     style="@style/BodyText"
-                    android:text="@string/paused_description" />
+                    android:layout_marginTop="4dp"
+                    android:text="@string/demo_message"
+                    android:gravity="center"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp"
+                    android:accessibilityLiveRegion="polite" />
 
-                <TextView
-                    android:id="@+id/tvRuntimeError"
-                    style="@style/BodyText"
-                    android:textColor="@color/error"
-                    android:accessibilityLiveRegion="polite"
-                    android:visibility="gone" />
+                <Button
+                    android:id="@+id/btnTestCompanionNow"
+                    style="@style/PrimaryButton"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/preview_companion" />
             </LinearLayout>
 
-            <!-- Pillar 1: Screen Breaks (Eye Strain / 20-20-20 Rule) -->
+            <!-- Focused Feature 1: Screen Break (20-20-20 Rule) -->
             <LinearLayout
                 style="@style/Card"
-                android:layout_marginTop="14dp">
+                android:layout_marginTop="14dp"
+                android:padding="18dp">
 
-                <TextView
-                    style="@style/SectionTitle"
-                    android:text="@string/eye_title" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                <TextView
-                    style="@style/BodyText"
-                    android:text="@string/eye_message" />
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/tvEyeCountdown"
-                    style="@style/SectionTitle"
-                    android:tag="metric"
-                    android:layout_marginTop="14dp"
-                    android:text="@string/countdown_paused"
-                    android:textSize="26sp"
-                    android:fontFamily="sans-serif-medium" />
+                        <TextView
+                            style="@style/SectionTitle"
+                            android:text="@string/eye_title" />
+
+                        <TextView
+                            style="@style/BodyText"
+                            android:layout_marginTop="2dp"
+                            android:textSize="12sp"
+                            android:text="@string/eye_subtitle" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvEyeCountdown"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:tag="metric"
+                        android:layout_marginEnd="10dp"
+                        android:text="@string/countdown_paused"
+                        android:textColor="@color/primary"
+                        android:textSize="20sp"
+                        android:fontFamily="sans-serif-medium" />
+
+                    <androidx.appcompat.widget.SwitchCompat
+                        android:id="@+id/switchScreenBreak"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:checked="true" />
+                </LinearLayout>
 
                 <ProgressBar
                     android:id="@+id/eyeProgress"
                     style="?android:attr/progressBarStyleHorizontal"
                     android:layout_width="match_parent"
-                    android:layout_height="8dp"
-                    android:layout_marginTop="8dp"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="10dp"
                     android:max="1000"
                     android:importantForAccessibility="no"
                     android:progressTint="@color/primary" />
 
-                <TextView
-                    style="@style/BodyText"
-                    android:text="@string/eye_interval"
-                    android:layout_marginTop="14dp" />
-
-                <HorizontalScrollView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:scrollbars="none"
-                    android:requiresFadingEdge="horizontal"
-                    android:fadingEdgeLength="@dimen/chip_row_fade">
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                    <LinearLayout
+                    <HorizontalScrollView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content">
+
+                            <Button android:id="@+id/chipEye15" style="@style/Choice" android:minWidth="48dp" android:minHeight="40dp" android:paddingStart="12dp" android:paddingEnd="12dp" android:text="@string/minutes_15" />
+                            <Button android:id="@+id/chipEye20" style="@style/Choice" android:minWidth="48dp" android:minHeight="40dp" android:paddingStart="12dp" android:paddingEnd="12dp" android:text="@string/minutes_20" />
+                            <Button android:id="@+id/chipEye30" style="@style/Choice" android:minWidth="48dp" android:minHeight="40dp" android:paddingStart="12dp" android:paddingEnd="12dp" android:text="@string/minutes_30" />
+                            <Button android:id="@+id/chipEye45" style="@style/Choice" android:minWidth="48dp" android:minHeight="40dp" android:paddingStart="12dp" android:paddingEnd="12dp" android:text="@string/minutes_45" />
+                        </LinearLayout>
+                    </HorizontalScrollView>
+
+                    <Button
+                        android:id="@+id/btnStartBreakNow"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content">
-
-                        <Button android:id="@+id/chipEye15" style="@style/Choice" android:text="@string/minutes_15" />
-                        <Button android:id="@+id/chipEye20" style="@style/Choice" android:text="@string/minutes_20" />
-                        <Button android:id="@+id/chipEye30" style="@style/Choice" android:text="@string/minutes_30" />
-                        <Button android:id="@+id/chipEye45" style="@style/Choice" android:text="@string/minutes_45" />
-                    </LinearLayout>
-                </HorizontalScrollView>
+                        android:layout_height="40dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:layout_marginStart="8dp"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:background="@drawable/bg_pill_active"
+                        android:text="@string/take_break_now"
+                        android:textAllCaps="false"
+                        android:textColor="@color/on_primary"
+                        android:textSize="13sp"
+                        android:fontFamily="sans-serif-medium" />
+                </LinearLayout>
             </LinearLayout>
 
-            <!-- Pillar 2: Hydration (Water Reminders) -->
+            <!-- Focused Feature 2: Notes & Reminders -->
             <LinearLayout
                 style="@style/Card"
-                android:layout_marginTop="14dp">
+                android:layout_marginTop="14dp"
+                android:layout_marginBottom="16dp"
+                android:padding="18dp">
 
-                <TextView
-                    style="@style/SectionTitle"
-                    android:text="@string/water_title" />
-
-                <TextView
-                    style="@style/BodyText"
-                    android:text="@string/water_message" />
-
-                <TextView
-                    android:id="@+id/tvWaterCountdown"
-                    style="@style/SectionTitle"
-                    android:tag="metric"
-                    android:layout_marginTop="14dp"
-                    android:text="@string/countdown_paused"
-                    android:textSize="26sp"
-                    android:fontFamily="sans-serif-medium" />
-
-                <ProgressBar
-                    android:id="@+id/waterProgress"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="8dp"
-                    android:layout_marginTop="8dp"
-                    android:max="1000"
-                    android:importantForAccessibility="no"
-                    android:progressTint="@color/primary" />
-
-                <TextView
-                    style="@style/BodyText"
-                    android:text="@string/water_interval"
-                    android:layout_marginTop="14dp" />
-
-                <HorizontalScrollView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:scrollbars="none"
-                    android:requiresFadingEdge="horizontal"
-                    android:fadingEdgeLength="@dimen/chip_row_fade">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                    <LinearLayout
+                    <TextView
+                        style="@style/SectionTitle"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content">
+                        android:text="@string/tasks_title" />
 
-                        <Button android:id="@+id/chipWater15" style="@style/Choice" android:text="@string/minutes_15" />
-                        <Button android:id="@+id/chipWater30" style="@style/Choice" android:text="@string/minutes_30" />
-                        <Button android:id="@+id/chipWater45" style="@style/Choice" android:text="@string/minutes_45" />
-                        <Button android:id="@+id/chipWater60" style="@style/Choice" android:text="@string/minutes_60" />
-                    </LinearLayout>
-                </HorizontalScrollView>
-            </LinearLayout>
+                    <TextView
+                        android:id="@+id/tvTaskCount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:paddingStart="9dp"
+                        android:paddingTop="2dp"
+                        android:paddingEnd="9dp"
+                        android:paddingBottom="2dp"
+                        android:background="@drawable/bg_pill_inactive"
+                        android:text="0"
+                        android:textSize="12sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:textColor="@color/primary" />
 
-            <!-- Pillar 3: Notes & Tasks Checklist -->
-            <LinearLayout
-                style="@style/Card"
-                android:layout_marginTop="14dp">
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
 
-                <TextView
-                    style="@style/SectionTitle"
-                    android:text="@string/tasks_title" />
-
-                <TextView
-                    android:id="@+id/tvTaskCount"
-                    style="@style/BodyText"
-                    android:text="@string/tasks_description" />
-
-                <Button
-                    android:id="@+id/btnAddNewTask"
-                    style="@style/PrimaryButton"
-                    android:text="@string/add_task" />
+                    <Button
+                        android:id="@+id/btnAddNewTask"
+                        android:layout_width="wrap_content"
+                        android:layout_height="38dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:background="@drawable/bg_pill_active"
+                        android:text="@string/add_task"
+                        android:textAllCaps="false"
+                        android:textColor="@color/on_primary"
+                        android:textSize="13sp"
+                        android:fontFamily="sans-serif-medium" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/tvTaskError"
@@ -317,45 +278,18 @@
                     android:id="@+id/llTasksContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="14dp"
                     android:orientation="vertical" />
 
                 <TextView
                     android:id="@+id/tvEmptyTasks"
                     style="@style/BodyText"
+                    android:layout_marginTop="10dp"
                     android:text="@string/empty_tasks"
+                    android:gravity="center"
                     android:paddingTop="8dp"
                     android:paddingBottom="8dp" />
             </LinearLayout>
-
-            <!-- Optional Notifications Permission Banner -->
-            <LinearLayout
-                android:id="@+id/notificationBanner"
-                style="@style/Card"
-                android:layout_marginTop="14dp">
-
-                <TextView
-                    style="@style/SectionTitle"
-                    android:text="@string/notifications_title" />
-
-                <TextView
-                    style="@style/BodyText"
-                    android:text="@string/notifications_description" />
-
-                <Button
-                    android:id="@+id/btnNotifications"
-                    style="@style/PrimaryButton"
-                    android:text="@string/allow_notifications" />
-            </LinearLayout>
-
-            <!-- Clean Minimal Footer -->
-            <TextView
-                style="@style/BodyText"
-                android:text="@string/privacy_footer"
-                android:layout_marginTop="20dp"
-                android:layout_marginBottom="16dp"
-                android:gravity="center"
-                android:textSize="12sp" />
 
         </LinearLayout>
     </ScrollView>

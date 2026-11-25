@@ -277,10 +277,12 @@ class HumanCompanionView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         attachGeneration++
+        textureView.alpha = 1f
+        effectsLayer.alpha = 1f
+        shadowLayer.alpha = 1f
         textureView.visibility = VISIBLE
         effectsLayer.visibility = VISIBLE
         shadowLayer.visibility = VISIBLE
-        fallbackView.alpha = 1f
         fallbackView.alpha = 1f
         fallbackView.visibility = VISIBLE
         loadingView.visibility = VISIBLE
@@ -794,7 +796,8 @@ class HumanCompanionView @JvmOverloads constructor(
 
     private fun canRender(): Boolean =
         session != null && swapChain != null && animationEnabled && visibleAggregated &&
-            width > 0 && height > 0 && getGlobalVisibleRect(visibleRect)
+            width > 0 && height > 0 &&
+            (!modelReady || renderState != RenderState.READY || getLocalVisibleRect(visibleRect) || getGlobalVisibleRect(visibleRect))
 
     private fun wantsFrames(): Boolean =
         canRender() && (needsRedraw || !modelReady || motionAllowed || dragging || abs(userYaw) > 0.05f)
