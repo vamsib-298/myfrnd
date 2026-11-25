@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * CompanionPreferences: Focused settings for Screen Break, Companion state, and permissions.
+ * CompanionPreferences: Focused settings for Screen Break, Water Break, Voice TTS, and Companion state.
  */
 object CompanionPreferences {
     private const val PREFS_NAME = "myfrnd_preferences"
 
+    private const val KEY_WATER_INTERVAL_MIN = "key_water_interval_min"
+    private const val KEY_WATER_BREAK_ENABLED = "key_water_break_enabled"
     private const val KEY_EYE_STRAIN_MIN = "key_eye_strain_min"
     private const val KEY_SCREEN_BREAK_ENABLED = "key_screen_break_enabled"
     private const val KEY_COMPANION_ENABLED = "key_companion_enabled"
@@ -28,8 +30,25 @@ object CompanionPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    fun getWaterIntervalMinutes(context: Context): Int {
+        return getPrefs(context).getInt(KEY_WATER_INTERVAL_MIN, 30)
+    }
+
+    fun setWaterIntervalMinutes(context: Context, minutes: Int) {
+        require(minutes in listOf(15, 30, 45, 60))
+        getPrefs(context).edit().putInt(KEY_WATER_INTERVAL_MIN, minutes).apply()
+    }
+
+    fun isWaterBreakEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_WATER_BREAK_ENABLED, true)
+    }
+
+    fun setWaterBreakEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_WATER_BREAK_ENABLED, enabled).apply()
+    }
+
     fun getEyeStrainMinutes(context: Context): Int {
-        return getPrefs(context).getInt(KEY_EYE_STRAIN_MIN, 20) // Default 20 min (20-20-20 rule)
+        return getPrefs(context).getInt(KEY_EYE_STRAIN_MIN, 20)
     }
 
     fun setEyeStrainMinutes(context: Context, minutes: Int) {
@@ -63,7 +82,7 @@ object CompanionPreferences {
         getPrefs(context).edit().putString(KEY_POSITION_MODE, mode).apply()
     }
 
-    fun isVoiceEnabled(context: Context) = getPrefs(context).getBoolean(KEY_VOICE_ENABLED, false)
+    fun isVoiceEnabled(context: Context) = getPrefs(context).getBoolean(KEY_VOICE_ENABLED, true)
 
     fun setVoiceEnabled(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_VOICE_ENABLED, enabled).apply()

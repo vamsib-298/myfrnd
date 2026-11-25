@@ -161,10 +161,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        btnSipWaterNow.setOnClickListener {
+            if (!Settings.canDrawOverlays(this@MainActivity)) {
+                requestOverlay()
+            } else {
+                if (!CompanionPreferences.isCompanionEnabled(this@MainActivity)) enableCompanion()
+                CompanionPreferences.setWaterBreakEnabled(this@MainActivity, true)
+                OverlayService.triggerWaterNow(this@MainActivity)
+            }
+        }
+
         switchScreenBreak.setOnCheckedChangeListener { _, checked ->
             if (syncing) return@setOnCheckedChangeListener
             CompanionPreferences.setScreenBreakEnabled(this@MainActivity, checked)
             loadSettings()
+        }
+
+        switchWaterBreak.setOnCheckedChangeListener { _, checked ->
+            if (syncing) return@setOnCheckedChangeListener
+            CompanionPreferences.setWaterBreakEnabled(this@MainActivity, checked)
+            loadSettings()
+        }
+
+        switchVoice.setOnCheckedChangeListener { _, checked ->
+            if (!syncing) CompanionPreferences.setVoiceEnabled(this@MainActivity, checked)
         }
 
         eyeChoices().forEach { (button, value) ->
@@ -176,16 +196,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        waterChoices().forEach { (button, value) ->
+            button.setOnClickListener {
+                CompanionPreferences.setWaterIntervalMinutes(this@MainActivity, value)
+                if (!CompanionPreferences.isWaterBreakEnabled(this@MainActivity)) {
+                    CompanionPreferences.setWaterBreakEnabled(this@MainActivity, true)
+                }
+            }
+        }
+
         liveDashboardCompanion.dragToRotate = true
         liveDashboardCompanion.setOnClickListener {
             val expressions = listOf(
                 HumanCompanionView.Expression.WINK_PLAYFUL to R.string.demo_cheer,
+                HumanCompanionView.Expression.HAPPY_WATER to R.string.water_message,
                 HumanCompanionView.Expression.TIRED_EYES to R.string.eye_message,
                 HumanCompanionView.Expression.NORMAL to R.string.demo_message
             )
             val (exp, msg) = expressions[tapCount++ % expressions.size]
             liveDashboardCompanion.displayMode = HumanCompanionView.DisplayMode.FULL_BODY
-            liveDashboardCompanion.animationPhase = if (tapCount % 3 == 1)
+            liveDashboardCompanion.animationPhase = if (tapCount % 4 == 1)
                 HumanCompanionView.PHASE_WALK_IN else HumanCompanionView.PHASE_IDLE
             liveDashboardCompanion.currentExpression = exp
             liveDashboardCompanion.isTalking = true
@@ -234,6 +264,10 @@ class MainActivity : AppCompatActivity() {
         listOf(chipEye15 to 15, chipEye20 to 20, chipEye30 to 30, chipEye45 to 45)
     }
 
+    private fun waterChoices() = with(binding) {
+        listOf(chipWater15 to 15, chipWater30 to 30, chipWater45 to 45, chipWater60 to 60)
+    }
+
     private fun select(button: Button, selected: Boolean) {
         button.isSelected = selected
         ViewCompat.setStateDescription(button, getString(if (selected) R.string.selected else R.string.not_selected))
@@ -242,9 +276,12 @@ class MainActivity : AppCompatActivity() {
     private fun loadSettings() = with(binding) {
         syncing = true
         switchScreenBreak.isChecked = CompanionPreferences.isScreenBreakEnabled(this@MainActivity)
+        switchWaterBreak.isChecked = CompanionPreferences.isWaterBreakEnabled(this@MainActivity)
+        switchVoice.isChecked = CompanionPreferences.isVoiceEnabled(this@MainActivity)
         liveDashboardCompanion.reducedMotion = CompanionPreferences.isReducedMotion(this@MainActivity)
         syncing = false
         eyeChoices().forEach { select(it.first, it.second == CompanionPreferences.getEyeStrainMinutes(this@MainActivity)) }
+        waterChoices().forEach { select(it.first, it.second == CompanionPreferences.getWaterIntervalMinutes(this@MainActivity)) }
         llMandatoryOverlayBanner.isVisible = !Settings.canDrawOverlays(this@MainActivity)
         renderStatus(CompanionRuntime.status.value)
     }
@@ -270,24 +307,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderCountdowns(status: CompanionStatus) {
-        val screenBreakOn = CompanionPreferences.isScreenBreakEnabled(this)
-        val minutes = CompanionPreferences.getEyeStrainMinutes(this)
-        val deadline = status.nextEye
-        val remaining = ((deadline ?: 0L) - SystemClock.elapsedRealtime()).coerceAtLeast(0)
-        val seconds = (remaining + 999) / 1000
-        val text = when {
-            !screenBreakOn || !status.running -> getString(R.string.countdown_paused)
-            !status.screenActive -> getString(R.string.countdown_unlock)
-            seconds == 0L -> getString(R.string.countdown_waiting)
-            else -> getString(R.string.countdown, seconds / 60, seconds % 60)
+        fun renderTimer(
+            view: TextView,
+            progress: ProgressBar,
+            enabled: Boolean,
+            requireScreenActive: Boolean,
+            deadline: Long?,
+            minutes: Int,
+            labelRes: Int
+        ) {
+            val remaining = ((deadline ?: 0L) - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+            val seconds = (remaining + 999) / 1000
+            val text = when {
+                !enabled || !status.running -> getString(R.string.countdown_paused)
+                requireScreenActive && !status.screenActive -> getString(R.string.countdown_unlock)
+                seconds == 0L -> getString(R.string.countdown_waiting)
+                else -> getString(R.string.countdown, seconds / 60, seconds % 60)
+            }
+            if (view.text != text) {
+                view.text = text
+                view.contentDescription = getString(R.string.countdown_accessibility, getString(labelRes), text)
+            }
+            progress.progress = if (!enabled || !status.running || deadline == null) 0
+            else (1000 - remaining * 1000 / (minutes * 60_000L)).toInt().coerceIn(0, 1000)
         }
-        if (binding.tvEyeCountdown.text != text) {
-            binding.tvEyeCountdown.text = text
-            binding.tvEyeCountdown.contentDescription =
-                getString(R.string.countdown_accessibility, getString(R.string.eye_title), text)
-        }
-        binding.eyeProgress.progress = if (!screenBreakOn || !status.running || deadline == null) 0
-        else (1000 - remaining * 1000 / (minutes * 60_000L)).toInt().coerceIn(0, 1000)
+        renderTimer(
+            binding.tvEyeCountdown, binding.eyeProgress,
+            CompanionPreferences.isScreenBreakEnabled(this), true,
+            status.nextEye, CompanionPreferences.getEyeStrainMinutes(this), R.string.eye_title
+        )
+        renderTimer(
+            binding.tvWaterCountdown, binding.waterProgress,
+            CompanionPreferences.isWaterBreakEnabled(this), false,
+            status.nextWater, CompanionPreferences.getWaterIntervalMinutes(this), R.string.water_title
+        )
     }
 
     private fun renderTasks() {

@@ -39,13 +39,11 @@ class OverlayService : Service() {
         const val ACTION_STOP_SERVICE = "com.myfrnd.app.ACTION_STOP_SERVICE"
         const val ACTION_UPDATE_CONFIG = "com.myfrnd.app.ACTION_UPDATE_CONFIG"
         const val ACTION_TRIGGER_EYE_STRAIN = "com.myfrnd.app.ACTION_TRIGGER_EYE_STRAIN"
-        const val ACTION_SNOOZE_EYE_STRAIN = "com.myfrnd.app.ACTION_SNOOZE_EYE_STRAIN"
-        const val ACTION_COMPLETE_EYE_BREAK = "com.myfrnd.app.ACTION_COMPLETE_EYE_BREAK"
+        const val ACTION_TRIGGER_WATER = "com.myfrnd.app.ACTION_TRIGGER_WATER"
 
         fun startWithInitialDemo(context: Context) = start(context, ACTION_DEMO_NOW)
         fun triggerScreenBreakNow(context: Context) = start(context, ACTION_TRIGGER_EYE_STRAIN)
-        fun snoozeScreenBreak(context: Context) = start(context, ACTION_SNOOZE_EYE_STRAIN)
-        fun completeScreenBreak(context: Context) = start(context, ACTION_COMPLETE_EYE_BREAK)
+        fun triggerWaterNow(context: Context) = start(context, ACTION_TRIGGER_WATER)
         fun updateConfiguration(context: Context) = start(context, ACTION_UPDATE_CONFIG)
 
         fun pause(context: Context) {
@@ -82,15 +80,18 @@ class OverlayService : Service() {
     private var runtimeError: Int? = null
     private var previewRequested = false
     private var breakNowRequested = false
+    private var waterNowRequested = false
     private val evaluate = Runnable { evaluateReminders() }
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         if (!CompanionPreferences.isCompanionEnabled(this)) {
             stopSelf()
         } else {
             schedule.configure(
-                SystemClock.elapsedRealtime(),
-                CompanionPreferences.getEyeStrainMinutes(this),
-                CompanionPreferences.isScreenBreakEnabled(this)
+                now = SystemClock.elapsedRealtime(),
+                waterMinutes = CompanionPreferences.getWaterIntervalMinutes(this),
+                eyeMinutes = CompanionPreferences.getEyeStrainMinutes(this),
+                waterOn = CompanionPreferences.isWaterBreakEnabled(this),
+                eyeOn = CompanionPreferences.isScreenBreakEnabled(this)
             )
             overlays.refreshPreferences()
             requestEvaluation()
@@ -111,10 +112,12 @@ class OverlayService : Service() {
         startServiceInForeground()
         screenActive = isScreenAvailable()
         schedule = ReminderSchedule(
-            SystemClock.elapsedRealtime(),
-            CompanionPreferences.getEyeStrainMinutes(this),
-            screenActive,
-            CompanionPreferences.isScreenBreakEnabled(this)
+            now = SystemClock.elapsedRealtime(),
+            waterMinutes = CompanionPreferences.getWaterIntervalMinutes(this),
+            eyeMinutes = CompanionPreferences.getEyeStrainMinutes(this),
+            screenActive = screenActive,
+            waterEnabled = CompanionPreferences.isWaterBreakEnabled(this),
+            eyeEnabled = CompanionPreferences.isScreenBreakEnabled(this)
         )
         overlays = OverlayWindowManager(
             context = this,
@@ -125,6 +128,14 @@ class OverlayService : Service() {
             },
             onEyeBreakSnooze = {
                 schedule.snoozeEye(SystemClock.elapsedRealtime(), 5)
+                publishStatus()
+            },
+            onWaterDone = {
+                schedule.waterDelivered(SystemClock.elapsedRealtime())
+                publishStatus()
+            },
+            onWaterSnooze = {
+                schedule.snoozeWater(SystemClock.elapsedRealtime(), 5)
                 publishStatus()
             },
             onTaskSnooze = { taskId ->
@@ -160,8 +171,7 @@ class OverlayService : Service() {
         when (intent?.action) {
             ACTION_DEMO_NOW -> previewRequested = true
             ACTION_TRIGGER_EYE_STRAIN -> breakNowRequested = true
-            ACTION_SNOOZE_EYE_STRAIN -> schedule.snoozeEye(SystemClock.elapsedRealtime(), 5)
-            ACTION_COMPLETE_EYE_BREAK -> schedule.eyeDelivered(SystemClock.elapsedRealtime())
+            ACTION_TRIGGER_WATER -> waterNowRequested = true
         }
         requestEvaluation()
         return START_STICKY
@@ -183,7 +193,9 @@ class OverlayService : Service() {
                 running = true,
                 screenActive = screenActive,
                 screenBreakEnabled = CompanionPreferences.isScreenBreakEnabled(this),
+                waterBreakEnabled = CompanionPreferences.isWaterBreakEnabled(this),
                 nextEye = schedule.nextEye,
+                nextWater = schedule.nextWater,
                 error = runtimeError
             )
         )
@@ -227,11 +239,23 @@ class OverlayService : Service() {
                     spokenText = getString(R.string.eye_message)
                 ).also { if (it) { breakNowRequested = false; schedule.eyeDelivered(now) } }
             }
+            waterNowRequested -> {
+                overlays.showOverlay(
+                    reason = OverlayWindowManager.OverlayReason.WATER_REMINDER,
+                    spokenText = getString(R.string.water_message)
+                ).also { if (it) { waterNowRequested = false; schedule.waterDelivered(now) } }
+            }
             previewRequested -> {
                 overlays.showOverlay(
                     reason = OverlayWindowManager.OverlayReason.GENERAL_TEST,
                     spokenText = getString(R.string.demo_message)
                 ).also { if (it) previewRequested = false }
+            }
+            schedule.nextWater?.let { now >= it } == true -> {
+                overlays.showOverlay(
+                    reason = OverlayWindowManager.OverlayReason.WATER_REMINDER,
+                    spokenText = getString(R.string.water_message)
+                ).also { if (it) schedule.waterDelivered(now) }
             }
             schedule.nextEye?.let { now >= it } == true -> {
                 overlays.showOverlay(

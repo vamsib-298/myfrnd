@@ -31,9 +31,11 @@ class OverlayWindowManager(
     private val onDismissed: () -> Unit = {},
     private val onEyeBreakDone: () -> Unit = {},
     private val onEyeBreakSnooze: () -> Unit = {},
+    private val onWaterDone: () -> Unit = {},
+    private val onWaterSnooze: () -> Unit = {},
     private val onTaskSnooze: (String) -> Unit = {}
 ) {
-    enum class OverlayReason { EYE_STRAIN, WORK_TASK_REMINDER, GENERAL_TEST }
+    enum class OverlayReason { WATER_REMINDER, EYE_STRAIN, WORK_TASK_REMINDER, GENERAL_TEST }
     enum class EntranceStyle { LEFT_TO_RIGHT, RIGHT_TO_LEFT, BOTTOM_SLIDE }
 
     private val windowManager = context.getSystemService(WindowManager::class.java)
@@ -43,6 +45,7 @@ class OverlayWindowManager(
     private var currentParams: WindowManager.LayoutParams? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var pendingSpeech: Pair<Long, String>? = null
     private var closed = false
     private var dismissing = false
     private var generation = 0L
@@ -57,7 +60,6 @@ class OverlayWindowManager(
                 updateBreakCard(view)
                 handler.postDelayed(this, 1_000L)
             } else {
-                // Break complete celebration
                 view.findViewById<TextView>(R.id.tvOverlayTitle).text = context.getString(R.string.break_complete_title)
                 view.findViewById<TextView>(R.id.speechText).text = context.getString(R.string.break_complete_message)
                 view.findViewById<ProgressBar>(R.id.breakProgress).progress = 1000
@@ -66,6 +68,7 @@ class OverlayWindowManager(
                     currentExpression = HumanCompanionView.Expression.WINK_PLAYFUL
                     triggerTapReaction()
                 }
+                speak(context.getString(R.string.break_complete_message))
                 onEyeBreakDone()
                 handler.postDelayed(timeout, 1_800L)
             }
@@ -77,6 +80,7 @@ class OverlayWindowManager(
     fun refreshPreferences() {
         character?.reducedMotion = CompanionPreferences.isReducedMotion(context)
         if (!CompanionPreferences.isVoiceEnabled(context)) {
+            pendingSpeech = null
             tts?.stop()
             character?.isTalking = false
         } else {
@@ -89,16 +93,25 @@ class OverlayWindowManager(
         tts = TextToSpeech(context.applicationContext) { status ->
             if (closed) return@TextToSpeech
             if (status != TextToSpeech.SUCCESS) {
-                Log.w(TAG, "Speech unavailable; reminders remain visible")
+                Log.w(TAG, "Speech engine unavailable ($status); reminders remain visible")
                 return@TextToSpeech
             }
-            val language = Locale.getDefault().language
-            val localVoice = tts?.voices?.firstOrNull {
-                !it.isNetworkConnectionRequired && it.locale.language == language
+            val engine = tts ?: return@TextToSpeech
+            val deviceLocale = Locale.getDefault()
+            var langResult = engine.setLanguage(deviceLocale)
+            if (langResult < TextToSpeech.LANG_AVAILABLE) {
+                langResult = engine.setLanguage(Locale.US)
             }
-            ttsReady = localVoice != null && tts?.setVoice(localVoice) == TextToSpeech.SUCCESS
-            if (!ttsReady) Log.w(TAG, "No offline speech voice for the device language")
-            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            // Prefer an offline voice when available, but still speak via default engine voice if not enumerated.
+            val localVoice = runCatching {
+                engine.voices?.firstOrNull { !it.isNetworkConnectionRequired && it.locale.language == deviceLocale.language }
+            }.getOrNull()
+            if (localVoice != null) {
+                engine.setVoice(localVoice)
+            }
+            ttsReady = langResult >= TextToSpeech.LANG_AVAILABLE || localVoice != null
+            engine.setSpeechRate(1.0f)
+            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
                     handler.post {
                         if (utteranceId == generation.toString()) character?.isTalking = true
@@ -114,6 +127,12 @@ class OverlayWindowManager(
                     onDone(utteranceId)
                 }
             })
+            pendingSpeech?.let { (queuedGen, text) ->
+                pendingSpeech = null
+                if (queuedGen == generation && root != null && !dismissing && CompanionPreferences.isVoiceEnabled(context)) {
+                    handler.post { speak(text) }
+                }
+            }
         }
     }
 
@@ -136,6 +155,7 @@ class OverlayWindowManager(
         val style = when (reason) {
             OverlayReason.GENERAL_TEST -> EntranceStyle.LEFT_TO_RIGHT
             OverlayReason.EYE_STRAIN -> EntranceStyle.BOTTOM_SLIDE
+            OverlayReason.WATER_REMINDER -> EntranceStyle.LEFT_TO_RIGHT
             OverlayReason.WORK_TASK_REMINDER -> EntranceStyle.RIGHT_TO_LEFT
         }
         val view = LayoutInflater.from(context).inflate(R.layout.view_overlay_character, null) as ViewGroup
@@ -151,6 +171,7 @@ class OverlayWindowManager(
                 EntranceStyle.BOTTOM_SLIDE -> HumanCompanionView.PHASE_IDLE
             }
             currentExpression = when (reason) {
+                OverlayReason.WATER_REMINDER -> HumanCompanionView.Expression.HAPPY_WATER
                 OverlayReason.EYE_STRAIN -> HumanCompanionView.Expression.TIRED_EYES
                 OverlayReason.WORK_TASK_REMINDER -> HumanCompanionView.Expression.TASK_REMINDER
                 OverlayReason.GENERAL_TEST -> HumanCompanionView.Expression.WINK_PLAYFUL
@@ -182,7 +203,6 @@ class OverlayWindowManager(
         }
         currentParams = params
 
-        // Draggable companion + tap to wave!
         val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         var startRawX = 0f
         var startRawY = 0f
@@ -208,7 +228,6 @@ class OverlayWindowManager(
                     }
                     if (dragging && root === view && !dismissing) {
                         params.x = (startWinX + dx.toInt()).coerceIn(0, (screen.widthPixels - width).coerceAtLeast(0))
-                        // Gravity.BOTTOM increases y upwards
                         params.y = (startWinY - dy.toInt()).coerceIn(0, (screen.heightPixels - height).coerceAtLeast(0))
                         try {
                             windowManager.updateViewLayout(view, params)
@@ -218,9 +237,7 @@ class OverlayWindowManager(
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (!dragging) {
-                        companion.triggerTapReaction()
-                    }
+                    if (!dragging) companion.triggerTapReaction()
                     true
                 }
                 else -> false
@@ -237,6 +254,8 @@ class OverlayWindowManager(
         }
         root = view
         prepareVoice()
+        // Speak promptly when reminder arrives if voice is turned ON
+        speak(spokenText)
 
         if (animate) {
             when (style) {
@@ -251,11 +270,9 @@ class OverlayWindowManager(
                 .withEndAction {
                     companion.animationPhase = HumanCompanionView.PHASE_IDLE
                     companion.triggerTapReaction()
-                    speak(spokenText)
                 }.start()
         } else {
             companion.animationPhase = HumanCompanionView.PHASE_IDLE
-            speak(spokenText)
         }
         return true
     }
@@ -295,6 +312,23 @@ class OverlayWindowManager(
                     dismiss()
                 }
                 handler.postDelayed(breakTick, 1_000L)
+            }
+            OverlayReason.WATER_REMINDER -> {
+                titleView.setText(R.string.water_title)
+                bodyView.setText(R.string.water_message)
+                progress.visibility = View.GONE
+                btnPrimary.setText(R.string.overlay_done)
+                btnSecondary.setText(R.string.overlay_snooze_5m)
+                btnSecondary.visibility = View.VISIBLE
+                btnPrimary.setOnClickListener {
+                    onWaterDone()
+                    dismiss()
+                }
+                btnSecondary.setOnClickListener {
+                    onWaterSnooze()
+                    dismiss()
+                }
+                handler.postDelayed(timeout, 15_000L)
             }
             OverlayReason.WORK_TASK_REMINDER -> {
                 titleView.setText(R.string.overlay_task_label)
@@ -351,11 +385,15 @@ class OverlayWindowManager(
     }
 
     private fun speak(text: String) {
+        if (!CompanionPreferences.isVoiceEnabled(context)) return
         character?.animationPhase = HumanCompanionView.PHASE_TALK
-        if (ttsReady && CompanionPreferences.isVoiceEnabled(context)) {
-            if (tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, generation.toString()) == TextToSpeech.ERROR) {
-                Log.w(TAG, "Speech request rejected; keeping the text reminder")
-            }
+        if (!ttsReady) {
+            pendingSpeech = generation to text
+            prepareVoice()
+            return
+        }
+        if (tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, generation.toString()) == TextToSpeech.ERROR) {
+            Log.w(TAG, "Speech request rejected; keeping the text reminder")
         }
     }
 
@@ -363,6 +401,7 @@ class OverlayWindowManager(
         val view = root ?: return
         if (dismissing) return
         dismissing = true
+        pendingSpeech = null
         handler.removeCallbacks(timeout)
         handler.removeCallbacks(breakTick)
         view.animate().cancel()
@@ -381,6 +420,7 @@ class OverlayWindowManager(
 
     fun destroyOverlayImmediately() {
         generation++
+        pendingSpeech = null
         handler.removeCallbacksAndMessages(null)
         tts?.stop()
         root?.let { view ->
@@ -395,6 +435,7 @@ class OverlayWindowManager(
 
     fun releaseTts() {
         closed = true
+        pendingSpeech = null
         tts?.stop()
         tts?.shutdown()
         tts = null

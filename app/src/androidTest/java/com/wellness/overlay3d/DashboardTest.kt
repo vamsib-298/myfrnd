@@ -66,10 +66,13 @@ class DashboardTest {
 
     @Test fun changingIntervalsWhilePausedDoesNotStartService() {
         onView(withId(R.id.chipEye30)).perform(scrollTo(), click())
+        onView(withId(R.id.chipWater45)).perform(scrollTo(), click())
         assertEquals(30, CompanionPreferences.getEyeStrainMinutes(context))
+        assertEquals(45, CompanionPreferences.getWaterIntervalMinutes(context))
         assertFalse(CompanionRuntime.status.value.running)
         scenario.recreate()
         onView(withId(R.id.chipEye30)).check(matches(isSelected()))
+        onView(withId(R.id.chipWater45)).check(matches(isSelected()))
     }
 
     @Test fun customCompanionRespondsToRealTap() {

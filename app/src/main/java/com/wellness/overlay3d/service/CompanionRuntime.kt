@@ -7,7 +7,9 @@ data class CompanionStatus(
     val running: Boolean = false,
     val screenActive: Boolean = false,
     val screenBreakEnabled: Boolean = true,
+    val waterBreakEnabled: Boolean = true,
     val nextEye: Long? = null,
+    val nextWater: Long? = null,
     val error: Int? = null
 )
 

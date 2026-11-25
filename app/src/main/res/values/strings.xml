@@ -15,18 +15,26 @@
     <string name="status_problem">Issue</string>
 
     <string name="permission_title">Allow floating companion</string>
-    <string name="permission_description">Let your companion appear over other apps for 20s screen breaks and notes.</string>
+    <string name="permission_description">Let your companion appear over other apps for screen breaks, water, and notes.</string>
     <string name="grant_overlay">Grant &amp; Enable</string>
     <string name="permission_unavailable">Could not open overlay settings on this device.</string>
 
     <string name="eye_title">Screen Break</string>
     <string name="eye_subtitle">20-20-20 rule · Look 20 ft away for 20s</string>
     <string name="eye_message">Look at something 20 feet away to relax your eyes.</string>
-    <string name="take_break_now">Take 20s Break</string>
+    <string name="take_break_now">20s Break</string>
     <string name="start_break_short">20s Break</string>
     <string name="break_countdown_title">Screen Break · %1$ds</string>
     <string name="break_complete_title">Eyes Refreshed</string>
     <string name="break_complete_message">Great break! Back to focus.</string>
+
+    <string name="water_title">Water Break</string>
+    <string name="water_subtitle">Stay hydrated throughout the day</string>
+    <string name="water_message">Time for a quick sip of water.</string>
+    <string name="sip_water_now">Drink</string>
+
+    <string name="voice_label">Speak reminders aloud</string>
+    <string name="voice_subtitle">Read alerts out loud when your companion pops up</string>
 
     <string name="countdown">%1$02d:%2$02d</string>
     <string name="countdown_waiting">Due</string>
@@ -37,6 +45,7 @@
     <string name="minutes_20">20m</string>
     <string name="minutes_30">30m</string>
     <string name="minutes_45">45m</string>
+    <string name="minutes_60">60m</string>
 
     <string name="tasks_title">Notes &amp; Reminders</string>
     <string name="add_task">+ New</string>
@@ -84,7 +93,7 @@
 
     <string name="notification_channel">Companion status</string>
     <string name="notification_title">myfrnd is active</string>
-    <string name="notification_description">Screen break &amp; note reminders active.</string>
+    <string name="notification_description">Screen break, water &amp; note reminders active.</string>
     <string name="pause">Pause</string>
     <string name="selected">Selected</string>
     <string name="not_selected">Not selected</string>
