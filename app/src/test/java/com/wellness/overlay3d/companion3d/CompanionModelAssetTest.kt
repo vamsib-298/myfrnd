@@ -18,54 +18,72 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class) // Robolectric supplies the real org.json implementation.
 @Config(sdk = [34])
 class CompanionModelAssetTest {
-    private val bytes = listOf("src/main/assets", "app/src/main/assets")
-        .map { File(it, CompanionEngine.MODEL_ASSET_PATH) }
-        .firstOrNull { it.isFile }
-        ?.readBytes()
-        ?: error("${CompanionEngine.MODEL_ASSET_PATH} not found from ${File("").absolutePath}")
-    private val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-    private val jsonLength = header.getInt(12)
+    private val assetPaths = listOf(
+        CompanionEngine.MODEL_ASSET_PATH
+    )
 
-    private fun gltf() = JSONObject(String(bytes, 20, jsonLength, Charsets.UTF_8))
+    private fun loadAsset(path: String): ByteArray =
+        listOf("src/main/assets", "app/src/main/assets")
+            .map { File(it, path) }
+            .firstOrNull { it.isFile }
+            ?.readBytes()
+            ?: error("$path not found from ${File("").absolutePath}")
+
+    private fun gltf(bytes: ByteArray, jsonLength: Int) =
+        JSONObject(String(bytes, 20, jsonLength, Charsets.UTF_8))
 
     private fun JSONArray.objects() = List(length()) { getJSONObject(it) }
 
-    @Test fun isAGlb2FileWithJsonThenBinaryChunkUnderFiveMegabytes() {
-        assertTrue("${bytes.size} bytes", bytes.size < 5 * 1024 * 1024)
-        assertEquals(0x46546C67, header.getInt(0))
-        assertEquals(2, header.getInt(4))
-        assertEquals(bytes.size, header.getInt(8))
-        assertEquals(0x4E4F534A, header.getInt(16))
-        val binChunk = 20 + jsonLength
-        assertEquals(0x004E4942, header.getInt(binChunk + 4))
-        val binLength = header.getInt(binChunk)
-        assertTrue(binChunk + 8 + binLength <= bytes.size)
-        // gltfio only receives this file, so the one buffer must be the embedded BIN chunk.
-        val buffer = gltf().getJSONArray("buffers").objects().single()
-        assertFalse(buffer.has("uri"))
-        assertTrue(buffer.getInt("byteLength") <= binLength)
+    @Test fun bundledModelsAreValidGlb2UnderFiveMegabytes() {
+        assetPaths.forEach { path ->
+            val bytes = loadAsset(path)
+            val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val jsonLength = header.getInt(12)
+            assertTrue("$path too big: ${bytes.size} bytes", bytes.size < 5 * 1024 * 1024)
+            assertEquals(0x46546C67, header.getInt(0))
+            assertEquals(2, header.getInt(4))
+            assertEquals(bytes.size, header.getInt(8))
+            assertEquals(0x4E4F534A, header.getInt(16))
+            val binChunk = 20 + jsonLength
+            assertEquals(0x004E4942, header.getInt(binChunk + 4))
+            val binLength = header.getInt(binChunk)
+            assertTrue(binChunk + 8 + binLength <= bytes.size)
+            // gltfio only receives this file, so the one buffer must be the embedded BIN chunk.
+            val buffer = gltf(bytes, jsonLength).getJSONArray("buffers").objects().single()
+            assertFalse(buffer.has("uri"))
+            assertTrue(buffer.getInt("byteLength") <= binLength)
+        }
     }
 
-    @Test fun describesASkinnedTexturedHumanWithoutRequiredExtensions() {
-        val gltf = gltf()
-        assertFalse(gltf.has("extensionsRequired"))
-        assertTrue(gltf.getJSONArray("meshes").length() > 0)
-        assertTrue(gltf.getJSONArray("materials").length() > 0)
-        val images = gltf.getJSONArray("images").objects()
-        assertTrue(images.isNotEmpty())
-        images.forEachIndexed { index, image ->
-            assertTrue("image $index must be embedded", image.has("bufferView") || image.optString("uri").startsWith("data:"))
-        }
+    @Test fun bundledModelsHaveSkinnedRigEmbeddedImagesAndAnimations() {
+        assetPaths.forEach { path ->
+            val bytes = loadAsset(path)
+            val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val jsonLength = header.getInt(12)
+            val gltf = gltf(bytes, jsonLength)
+            assertFalse("$path extensionsRequired", gltf.has("extensionsRequired"))
+            assertTrue("$path meshes", gltf.getJSONArray("meshes").length() > 0)
+            assertTrue("$path materials", gltf.getJSONArray("materials").length() > 0)
+            val images = gltf.getJSONArray("images").objects()
+            assertTrue("$path images", images.isNotEmpty())
+            images.forEachIndexed { index, image ->
+                assertTrue("$path image $index must be embedded", image.has("bufferView") || image.optString("uri").startsWith("data:"))
+            }
 
-        val nodeNames = gltf.getJSONArray("nodes").objects().map { if (it.has("name")) it.getString("name") else null }
-        val skins = gltf.getJSONArray("skins").objects().map { skin ->
-            skin.getJSONArray("joints").let { joints -> List(joints.length()) { joints.getInt(it) } }
-        }
-        val rig = skins.firstOrNull { joints -> joints.map(nodeNames::get).containsAll(listOf("Head", "Chest", "Spine")) }
-        assertNotNull("skins: ${skins.map { it.map(nodeNames::get) }}", rig)
-        // The procedural pose bends these bones, so they must resolve to joints of that skin.
-        listOf(CompanionJoint.HEAD, CompanionJoint.CHEST, CompanionJoint.SPINE).forEach { joint ->
-            assertTrue(joint.name, HumanRig.findJoint(nodeNames, joint) in rig!!)
+            val nodeNames = gltf.getJSONArray("nodes").objects().map { if (it.has("name")) it.getString("name") else null }
+            val skins = gltf.getJSONArray("skins").objects().map { skin ->
+                skin.getJSONArray("joints").let { joints -> List(joints.length()) { joints.getInt(it) } }
+            }
+            val rig = skins.firstOrNull { joints -> joints.map(nodeNames::get).containsAll(listOf("Head", "Chest", "Spine")) }
+            assertNotNull("$path skins: ${skins.map { it.map(nodeNames::get) }}", rig)
+            // The procedural pose bends these bones, so they must resolve to joints of that skin.
+            listOf(CompanionJoint.HEAD, CompanionJoint.CHEST, CompanionJoint.SPINE).forEach { joint ->
+                assertTrue("$path ${joint.name}", HumanRig.findJoint(nodeNames, joint) in rig!!)
+            }
+
+            val animNames = gltf.getJSONArray("animations").objects().map { it.optString("name") }
+            assertTrue("$path idle anim missing: $animNames", animNames.contains("idle"))
+            assertTrue("$path wave anim missing: $animNames", animNames.contains("wave"))
         }
     }
 }

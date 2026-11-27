@@ -11,8 +11,8 @@ android {
         applicationId = "com.myfrnd.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.0.8"
+        versionCode = 10
+        versionName = "1.0.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Filament is native code; skip 32-bit x86 (no real devices) to keep the APK small.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
@@ -26,7 +26,6 @@ android {
     }
 
     signingConfigs {
-        // Without all four values (e.g. CI without secrets) the release APK is built unsigned.
         if (signingValues.values.all { !it.isNullOrBlank() }) {
             create("release") {
                 storeFile = rootProject.file(signingValues.getValue("MYFRND_KEYSTORE")!!)

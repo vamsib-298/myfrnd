@@ -16,6 +16,26 @@ commercial distribution as long as the author is credited, the license is linked
 changes are mentioned. The app shows this credit at the bottom of the dashboard
 (`model_credit` in `strings.xml`). If you swap in another model, update that credit too.
 
+## Walking companion
+
+Run `python tools/companion-model/rig_scan.py` from the repository root (NumPy, SciPy and Pillow).
+It starts from the optimized scan in commit `2e3b3bd`, retains its original colour, normal
+and roughness textures, and replaces the four-joint rig with 21 joints, surface-aware
+skin weights and idle, walking, nodding and waving clips. To start from a local copy
+of that original four-joint GLB, pass its path as the first argument.
+
+The walk uses subject 07, trial 01 from the [CMU Graphics Lab Motion Capture Database](https://mocap.cs.cmu.edu/), collected with support from NSF grant 0196217. The normalized stride in `cmu_walk_07_01.npz` was extracted from the [cgspeed BVH conversion](https://github.com/una-dinosauria/cmu-mocap/blob/master/data/007/07_01.bvh) with `extract_walk.py`. After building the GLB, run `python tools/companion-model/bake_companion.py` to regenerate the software-rendered walk and gesture artwork (requires Numba in addition to the rig dependencies).
+
+## Focus-room tabby
+
+The full-screen focus room displays the tabby. The awake pose is
+stored at `app/src/main/res/drawable-nodpi/focus_cat_awake.webp`. Built-in ImageGen edited
+the seated tabby using this prompt.
+
+> Keep this seated orange tabby’s body, striped fur, curled tail, proportions and soft warm lighting. Turn only its head to face the viewer at eye level with both green eyes open, ears alert and mouth closed. Full-body photographic cutout on transparency.
+
+The pause sound is Dan Crosby’s unmodified recording of his cat Silas. [Meow.ogg](https://commons.wikimedia.org/wiki/File:Meow.ogg) · [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)
+
 ## Run it
 
 Needs Node.js 20 or newer.
@@ -60,7 +80,7 @@ height band, which is the quickest way to check the rig.
 8. **Checks the result** against the same rules as `CompanionModelAssetTest`: under 5 MB, one
    buffer, embedded images, no required extensions, the joints present, feet on the ground.
 
-Result for the shipped model: 50,000 triangles, 42,085 vertices, 1.90 m tall, about 3.2 MB.
+Result before locomotion rigging: 50,000 triangles, 42,085 vertices, 1.90 m tall, about 3.2 MB.
 
 ## Using a different model
 

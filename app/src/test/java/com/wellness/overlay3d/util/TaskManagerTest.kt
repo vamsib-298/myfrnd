@@ -104,4 +104,13 @@ class TaskManagerTest {
         assertFalse(snoozed.isNote)
         assertEquals(601_000L, snoozed.timestampMillis)
     }
+
+    @Test fun rollPendingToTomorrowMorningMovesTimedItemsAndKeepsNotes() {
+        val note = TaskManager.addNote(context, "Keep as note", 500L)
+        TaskManager.addReminder(context, TaskReminder("t1", "Call dentist", 2_000L), 1_000L)
+        val rolled = TaskManager.rollPendingToTomorrowMorning(context, 1_000L)
+        assertEquals(1, rolled)
+        assertTrue(TaskManager.getPendingReminders(context).any { it.id == note.id && it.isNote })
+        assertTrue(TaskManager.getPendingTimedReminders(context).single().timestampMillis > 2_000L)
+    }
 }

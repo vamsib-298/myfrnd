@@ -43,8 +43,8 @@ object CompanionEngine {
     private var session: Session? = null
     private var materials: UbershaderProvider? = null
     private var users = 0
-    private var modelBytes: ByteBuffer? = null
-    private val pendingModelCallbacks = mutableListOf<(ByteBuffer?) -> Unit>()
+    private val modelBytesMap = mutableMapOf<String, ByteBuffer>()
+    private val pendingModelCallbacks = mutableMapOf<String, MutableList<(ByteBuffer?) -> Unit>>()
     private val releaseRunnable = Runnable { if (users == 0) destroySession() }
 
     /** Null when this device cannot run the 3D companion; callers then show the 2D fallback. */
@@ -98,18 +98,23 @@ object CompanionEngine {
      * the buffer must stay alive until resource loading finishes, which the cache guarantees.
      */
     @MainThread
-    fun loadModel(context: Context, callback: (ByteBuffer?) -> Unit) {
+    fun loadModel(
+        context: Context,
+        assetPath: String = MODEL_ASSET_PATH,
+        callback: (ByteBuffer?) -> Unit
+    ) {
         checkMainThread()
-        modelBytes?.let {
+        modelBytesMap[assetPath]?.let {
             callback(it)
             return
         }
-        pendingModelCallbacks += callback
-        if (pendingModelCallbacks.size > 1) return
+        val callbacks = pendingModelCallbacks.getOrPut(assetPath) { mutableListOf() }
+        callbacks += callback
+        if (callbacks.size > 1) return
         val appContext = context.applicationContext
         io.execute {
             val buffer = try {
-                appContext.assets.open(MODEL_ASSET_PATH).use { input ->
+                appContext.assets.open(assetPath).use { input ->
                     val bytes = input.readBytes()
                     ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder()).apply {
                         put(bytes)
@@ -117,14 +122,13 @@ object CompanionEngine {
                     }
                 }
             } catch (error: IOException) {
-                Log.e(TAG, "Companion model $MODEL_ASSET_PATH is missing or unreadable", error)
+                Log.e(TAG, "Companion model $assetPath is missing or unreadable", error)
                 null
             }
             mainHandler.post {
-                if (buffer != null && session != null) modelBytes = buffer
-                val callbacks = pendingModelCallbacks.toList()
-                pendingModelCallbacks.clear()
-                callbacks.forEach { it(buffer) }
+                if (buffer != null && session != null) modelBytesMap[assetPath] = buffer
+                val waiting = pendingModelCallbacks.remove(assetPath).orEmpty()
+                waiting.forEach { it(buffer) }
             }
         }
     }
@@ -132,7 +136,7 @@ object CompanionEngine {
     private fun destroySession() {
         val current = session ?: return
         session = null
-        modelBytes = null
+        modelBytesMap.clear()
         current.engine.destroyIndirectLight(current.indirectLight)
         current.assetLoader.destroy()
         materials?.let {

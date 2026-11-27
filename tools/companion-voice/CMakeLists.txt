@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.22)
+project(companion_voice C)
+file(TO_CMAKE_PATH "${FLITE_SOURCE}" src)
+file(GLOB core "${src}/src/*/*.c")
+list(FILTER core EXCLUDE REGEX "(/au_(alsa|command|oss|palmos|pulseaudio|sun|win|wince)|cst_file_(palmos|wince)|cst_mmap_(none|win32))[.]c$")
+file(GLOB language "${src}/lang/usenglish/*.c" "${src}/lang/cmu_us_rms/*.c")
+set(lex "${src}/lang/cmulex")
+add_library(companion_voice SHARED voice.c ${core} ${language}
+    "${lex}/cmu_lts_rules.c" "${lex}/cmu_lts_model.c" "${lex}/cmu_lex.c"
+    "${lex}/cmu_lex_entries.c" "${lex}/cmu_lex_data.c" "${lex}/cmu_postlex.c")
+target_include_directories(companion_voice PRIVATE "${src}/include" "${src}/lang/usenglish" "${lex}")
+target_compile_definitions(companion_voice PRIVATE CST_AUDIO_NONE CST_NO_SOCKETS)
+target_compile_options(companion_voice PRIVATE -O2 -fvisibility=hidden -ffunction-sections -fdata-sections)
+target_link_options(companion_voice PRIVATE -Wl,--gc-sections -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 -Wl,--no-undefined)
+target_link_libraries(companion_voice m)

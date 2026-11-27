@@ -23,7 +23,9 @@ import android.view.TextureView
 import android.view.ViewConfiguration
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
-import android.widget.ImageView
+import android.graphics.BitmapFactory
+import android.graphics.RectF
+import android.os.SystemClock
 import android.widget.ProgressBar
 import androidx.annotation.VisibleForTesting
 import androidx.core.graphics.withTranslation
@@ -99,7 +101,7 @@ class HumanCompanionView @JvmOverloads constructor(
         set(value) {
             if (field == value) return
             field = value
-            if (value && motionAllowed) {
+            if (value && motionAllowed && !walkingIn) {
                 director?.let { if (!it.isPlayingOneShot) it.playOnce(clipFor(CompanionMove.GESTURE)) }
             }
             requestRender()
@@ -126,7 +128,18 @@ class HumanCompanionView @JvmOverloads constructor(
     var animationPhase: String = PHASE_IDLE
         set(value) {
             if (field == value) return
+            if (walkingIn && walkRoute?.profile == 0f && value == PHASE_TALK) {
+                // The planted turn has already reached this idle pose. Start gestures from it.
+                director?.setLoop(clipFor(CompanionMove.IDLE), startNow = false)
+                director?.settle()
+            }
             field = value
+            fallbackView.restart()
+            if ((value == PHASE_WALK_IN || value == PHASE_SCREEN_WALK) && motionAllowed && displayMode == DisplayMode.FULL_BODY) {
+                walkStartedAt = clock
+                walkRoute = null
+                if (value == PHASE_WALK_IN) facingYaw = 65f * (if (walkDirection < 0) -1f else 1f)
+            }
             applyExpressionMotion()
             requestRender()
         }
@@ -134,8 +147,33 @@ class HumanCompanionView @JvmOverloads constructor(
     /** 1 = walking to the right of the screen, -1 = to the left. */
     var walkDirection: Int = 1
 
+    internal var walkRoute: WalkingRoute? = null
+        set(value) {
+            field = value
+            fallbackView.invalidate()
+        }
+
     /** Lets the user spin the companion with a horizontal drag; it springs back afterwards. */
     var dragToRotate = false
+
+    /** Which glTF asset inside assets/ to render (e.g. human companion vs Pomodoro cat in chair). */
+    var modelAssetPath: String = CompanionEngine.MODEL_ASSET_PATH
+        set(value) {
+            if (field == value) return
+            field = value
+            if (isAttachedToWindow && session != null) {
+                val gen = ++attachGeneration
+                clearLoadedModel()
+                setRenderState(RenderState.LOADING)
+                loadingView.visibility = VISIBLE
+                fallbackView.visibility = VISIBLE
+                fallbackView.alpha = 1f
+                CompanionEngine.loadModel(context, field) { buffer ->
+                    if (gen == attachGeneration && session != null) onModelBytes(buffer)
+                }
+                requestRender()
+            }
+        }
 
     var onRenderStateChanged: ((RenderState) -> Unit)? = null
 
@@ -151,7 +189,7 @@ class HumanCompanionView @JvmOverloads constructor(
     private val shadowLayer = GroundShadowLayer(context)
     private val textureView = TextureView(context)
     private val effectsLayer = EffectsLayer(context)
-    private val fallbackView = ImageView(context)
+    private val fallbackView = ScanFallback(context)
     private val loadingView = ProgressBar(context).apply {
         isIndeterminate = true
         indeterminateTintList = ColorStateList.valueOf(context.getColor(R.color.primary))
@@ -182,6 +220,10 @@ class HumanCompanionView @JvmOverloads constructor(
     private var headInstance = 0
     private var chestInstance = 0
     private var spineInstance = 0
+    private var leftArm = 0
+    private var rightArm = 0
+    private var rightForearm = 0
+    private var walkStartedAt = 0f
     private var wristInstances = IntArray(0)
     private val headRest = FloatArray(16)
     private val chestRest = FloatArray(16)
@@ -253,17 +295,15 @@ class HumanCompanionView @JvmOverloads constructor(
             it.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
-        fallbackView.setImageResource(R.drawable.img_companion_avatar)
-        fallbackView.scaleType = ImageView.ScaleType.FIT_CENTER
         fallbackView.alpha = 1f
         fallbackView.visibility = VISIBLE
-        fallbackView.alpha = 1f
         val spinnerSize = (32 * density).toInt()
         loadingView.importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         addView(loadingView, LayoutParams(spinnerSize, spinnerSize, Gravity.CENTER))
     }
 
     fun triggerTapReaction() {
+        fallbackView.restart()
         performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (motionAllowed) {
             tapStart = clock
@@ -291,6 +331,12 @@ class HumanCompanionView @JvmOverloads constructor(
             fail("window is not hardware accelerated")
             return
         }
+        // The Android emulator's GLES translator can abort in Filament's blit shader.
+        // Its failure occurs on the native render thread and cannot be caught by this view.
+        if (android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) {
+            fail("using the animated scan on the Android virtual GPU")
+            return
+        }
         val generation = attachGeneration
         // Starting the engine costs a few hundred ms of main thread; let the first frame (with the
         // spinner) reach the screen before paying for it.
@@ -302,7 +348,7 @@ class HumanCompanionView @JvmOverloads constructor(
             fail("3D renderer unavailable on this device")
             return
         }
-        CompanionEngine.loadModel(context) { buffer ->
+        CompanionEngine.loadModel(context, modelAssetPath) { buffer ->
             if (generation == attachGeneration && session != null) onModelBytes(buffer)
         }
         // Scrolling a dashboard or sliding an overlay window in both end with a redraw.
@@ -362,9 +408,10 @@ class HumanCompanionView @JvmOverloads constructor(
             setAntiAliasing(FilamentView.AntiAliasing.NONE)
             // Dithering noise would show up as speckles over the transparent window.
             setDithering(FilamentView.Dithering.NONE)
+            val isLowRam = context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true
             setMultiSampleAntiAliasingOptions(FilamentView.MultiSampleAntiAliasingOptions().apply {
-                enabled = true
-                sampleCount = 4
+                enabled = !isLowRam
+                sampleCount = if (isLowRam) 1 else 4
             })
             setShadowingEnabled(false)
             setColorGrading(grading)
@@ -377,16 +424,8 @@ class HumanCompanionView @JvmOverloads constructor(
         return true
     }
 
-    private fun tearDownFilament() {
+    private fun clearLoadedModel() {
         val shared = session ?: return
-        val engine = shared.engine
-        uiHelper?.detach()
-        uiHelper = null
-        swapChain?.let {
-            engine.destroySwapChain(it)
-            engine.flushAndWait()
-        }
-        swapChain = null
         val currentScene = scene
         resourceLoader?.asyncCancelLoad()
         asset?.let {
@@ -406,7 +445,23 @@ class HumanCompanionView @JvmOverloads constructor(
         effectsLayer.invalidate()
         shadowLayer.invalidate()
         headInstance = 0
+        chestInstance = 0
+        spineInstance = 0
         wristInstances = IntArray(0)
+    }
+
+    private fun tearDownFilament() {
+        val shared = session ?: return
+        val engine = shared.engine
+        uiHelper?.detach()
+        uiHelper = null
+        swapChain?.let {
+            engine.destroySwapChain(it)
+            engine.flushAndWait()
+        }
+        swapChain = null
+        val currentScene = scene
+        clearLoadedModel()
         filamentView?.let { engine.destroyView(it) }
         filamentView = null
         // The engine is shared and outlives this view, so its colour-grading LUT must be freed here.
@@ -465,6 +520,7 @@ class HumanCompanionView @JvmOverloads constructor(
         shadowLayer.visibility = GONE
         fallbackView.alpha = 1f
         fallbackView.visibility = VISIBLE
+        if (dragToRotate && motionAllowed) animationPhase = PHASE_WALK_IN
         setRenderState(RenderState.FAILED)
     }
 
@@ -537,6 +593,13 @@ class HumanCompanionView @JvmOverloads constructor(
         headInstance = jointInstance(CompanionJoint.HEAD, headRest)
         chestInstance = jointInstance(CompanionJoint.CHEST, chestRest)
         spineInstance = jointInstance(CompanionJoint.SPINE, spineRest)
+        fun limb(name: String): Int {
+            val index = nodeNames.indexOfFirst { it?.substringAfterLast(':') == name }
+            return if (index >= 0) tm.getInstance(entities[index]) else 0
+        }
+        leftArm = limb("LeftArm")
+        rightArm = limb("RightArm")
+        rightForearm = limb("RightForeArm")
         wristInstances = listOf(CompanionJoint.WRIST_LEFT, CompanionJoint.WRIST_RIGHT)
             .map { HumanRig.findJoint(nodeNames, it) }
             .filter { it >= 0 }
@@ -558,6 +621,10 @@ class HumanCompanionView @JvmOverloads constructor(
         // Animator and names are captured above; the parsed glTF JSON is no longer needed.
         loaded.releaseSourceData()
         modelReady = true
+        if (dragToRotate && motionAllowed && modelAssetPath == CompanionEngine.MODEL_ASSET_PATH) {
+            animationPhase = PHASE_WALK_IN
+        }
+        walkStartedAt = clock
         applyExpressionMotion()
     }
 
@@ -571,7 +638,7 @@ class HumanCompanionView @JvmOverloads constructor(
         get() = !reducedMotion && ValueAnimator.areAnimatorsEnabled()
 
     private val walkingIn: Boolean
-        get() = animationPhase == PHASE_WALK_IN && motionAllowed && displayMode == DisplayMode.FULL_BODY
+        get() = (animationPhase == PHASE_WALK_IN || animationPhase == PHASE_SCREEN_WALK) && motionAllowed && displayMode == DisplayMode.FULL_BODY
 
     /** Walk-in with the model's own walk cycle. */
     private val isWalking: Boolean
@@ -586,6 +653,7 @@ class HumanCompanionView @JvmOverloads constructor(
         val d = director ?: return
         if (isWalking) {
             d.setLoop(clipFor(CompanionMove.WALK))
+            if (d.isPlayingOneShot) d.settle()
             return
         }
         val loop = when {
@@ -610,18 +678,41 @@ class HumanCompanionView @JvmOverloads constructor(
         if (!motionAllowed) d.settle()
     }
 
+    private fun dashboardWalkDistance() = (0.98f * width / height.coerceAtLeast(1) - .28f).coerceIn(.32f, 1.45f)
+
+    private fun dashboardRoute(): WalkingRoute {
+        val metres = dashboardWalkDistance()
+        return walkRoute?.takeIf { it.metres == metres } ?: WalkingRoute(metres, false).also { walkRoute = it }
+    }
+
     private fun updateCharacter(dt: Float) {
         val engine = session?.engine ?: return
         val loaded = asset ?: return
         val modelAnimator = animator ?: return
         val tm = engine.transformManager
 
+        var travelX = 0f
+        if (animationPhase == PHASE_WALK_IN) {
+            val route = dashboardRoute()
+            val elapsed = clock - walkStartedAt
+            route.sample(elapsed)
+            if (!walkingIn || elapsed >= route.duration) {
+                expressionStart = clock
+                animationPhase = PHASE_TALK
+            } else {
+                travelX = -walkDirection * route.metres * (1f - route.distanceFraction)
+            }
+        }
         if (headInstance != 0) tm.setTransform(headInstance, headRest)
         if (chestInstance != 0) tm.setTransform(chestInstance, chestRest)
         if (spineInstance != 0) tm.setTransform(spineInstance, spineRest)
         director?.update(dt)?.let { pose ->
-            modelAnimator.applyAnimation(pose.clip, pose.time)
-            if (pose.previousClip >= 0 && pose.blend < 1f) {
+            val route = walkRoute?.takeIf { walkingIn && pose.clip == clipFor(CompanionMove.WALK) }
+            modelAnimator.applyAnimation(pose.clip, route?.let { it.strideTime % WalkingRoute.PERIOD } ?: pose.time)
+            val idle = clipFor(CompanionMove.IDLE)
+            if (route != null && route.profile < 1f && idle >= 0) {
+                modelAnimator.applyCrossFade(idle, 0f, route.profile)
+            } else if (pose.previousClip >= 0 && pose.blend < 1f) {
                 modelAnimator.applyCrossFade(pose.previousClip, pose.previousTime, pose.blend)
             }
         }
@@ -629,12 +720,12 @@ class HumanCompanionView @JvmOverloads constructor(
         // Body placement: facing, user spin, tap hop, walk-in steps, thread pendulum, corner peek lean.
         val direction = if (walkDirection < 0) -1f else 1f
         val targetYaw = when {
-            isWalking -> 90f * direction
+            isWalking -> 90f * direction * (walkRoute?.profile ?: 1f)
             isStepping -> STEP_YAW_DEGREES * direction
             else -> 0f
         }
         facingYaw += (targetYaw - facingYaw) * (1f - exp(-dt * 7f))
-        if (!motionAllowed) facingYaw = targetYaw
+        if (!motionAllowed || (isWalking && walkRoute != null)) facingYaw = targetYaw
         if (!dragging) userYaw *= exp(-dt * 4f)
         if (!motionAllowed && !dragging) userYaw = 0f
         val tapAge = clock - tapStart
@@ -646,7 +737,7 @@ class HumanCompanionView @JvmOverloads constructor(
         val stepRock = if (isStepping) sin(stepCycle) * 3.5f else 0f
 
         Matrix.setIdentityM(placement, 0)
-        Matrix.translateM(placement, 0, 0f, hopHeight, 0f)
+        Matrix.translateM(placement, 0, travelX, hopHeight, 0f)
         when (displayMode) {
             DisplayMode.THREAD_DROP -> {
                 val swing = if (motionAllowed) sin(clock * 1.9f) * 5f else 0f
@@ -669,6 +760,22 @@ class HumanCompanionView @JvmOverloads constructor(
         tm.setTransform(tm.getInstance(loaded.root), rootMatrix)
 
         if (proceduralBody) applyBodyMotion(tm)
+        if (motionAllowed && !walkingIn && !proceduralBody && modelAssetPath == CompanionEngine.MODEL_ASSET_PATH) {
+            val age = clock - expressionStart
+            when (currentExpression) {
+                Expression.TIRED_EYES -> {
+                    val reach = bump(age, 4.6f)
+                    rotateJoint(tm, leftArm, -18f * reach, 0f, 57f * reach)
+                    rotateJoint(tm, rightArm, -18f * reach, 0f, -57f * reach)
+                }
+                Expression.HAPPY_WATER -> {
+                    val lift = bump(age, 2.8f)
+                    rotateJoint(tm, rightArm, -32f * lift, 0f, -10f * lift)
+                    rotateJoint(tm, rightForearm, -66f * lift, 12f * lift, 13f * lift)
+                }
+                else -> Unit
+            }
+        }
         applyHeadMotion(tm)
         modelAnimator.updateBoneMatrices()
     }
@@ -711,37 +818,16 @@ class HumanCompanionView @JvmOverloads constructor(
     private fun bump(age: Float, length: Float): Float =
         if (age in 0f..length) sin(age / length * PI.toFloat()) else 0f
 
-    /** Small procedural head moves layered on top of the clips: talking nods, looking far away. */
+    /** Hold the gaze steady during movement and give an eye-break reminder one deliberate look. */
     private fun applyHeadMotion(tm: TransformManager) {
-        if (headInstance == 0) return
+        if (headInstance == 0 || walkingIn) return
         val age = clock - expressionStart
-        val settle = if (motionAllowed) smoothstep(age / 0.8f) else 1f
-        var pitch = 0f
-        var yaw = 0f
-        var roll = 0f
-        if (motionAllowed && isTalking) pitch += sin(clock * 7.5f) * 3.5f + sin(clock * 3.1f) * 1.5f
-        // Without a wave clip, a tap is answered with a friendly nod and head tilt.
-        if (motionAllowed && proceduralBody) {
-            val tapAge = clock - tapStart
-            pitch += 10f * bump(tapAge, TAP_NOD_SECONDS)
-            roll += 5f * bump(tapAge, TAP_NOD_SECONDS * 1.4f)
-        }
-        when (currentExpression) {
-            // 20-20-20 rule: look up and away into the distance.
-            Expression.TIRED_EYES -> {
-                yaw -= 30f * settle + if (motionAllowed) sin(clock * 0.7f) * 3f else 0f
-                pitch -= 12f * settle
-            }
-            Expression.HAPPY_WATER -> if (motionAllowed) {
-                roll += 6f * sin(clock * 2.2f) * settle
-                if (proceduralBody) pitch += 8f * sin(age * 2f * PI.toFloat() * 1.4f) * bump(age, 1.4f)
-            }
-            Expression.TASK_REMINDER -> if (motionAllowed && age < 1.6f) pitch += 9f * sin(age * 2f * PI.toFloat() * 1.25f) * (1f - age / 1.6f)
-            Expression.WINK_PLAYFUL -> if (motionAllowed) roll += 7f * sin(clock * 1.6f) * settle
-            Expression.NORMAL -> if (motionAllowed && !isWalking) yaw += sin(clock * 0.35f) * 8f
-        }
-        if (displayMode == DisplayMode.TOP_RIGHT_PEEK) roll -= 6f
-        rotateJoint(tm, headInstance, pitch, yaw, roll)
+        val settle = if (motionAllowed) smoothstep(age / .85f) else 1f
+        val lookAway = currentExpression == Expression.TIRED_EYES
+        val tapNod = if (motionAllowed && proceduralBody) 4f * bump(clock - tapStart, TAP_NOD_SECONDS) else 0f
+        rotateJoint(tm, headInstance, tapNod - if (lookAway) 8f * settle else 0f,
+            if (lookAway) -16f * settle else 0f,
+            if (displayMode == DisplayMode.TOP_RIGHT_PEEK) -4f else 0f)
     }
 
     /**
@@ -780,6 +866,7 @@ class HumanCompanionView @JvmOverloads constructor(
     // region rendering
 
     fun requestRender() {
+        if (fallbackView.visibility == VISIBLE) fallbackView.invalidate()
         needsRedraw = true
         updateLoop()
     }
@@ -813,8 +900,12 @@ class HumanCompanionView @JvmOverloads constructor(
             lastFrameNanos = 0L
             return
         }
-        if (lastFrameNanos != 0L && !wantsFullFrameRate() &&
-            frameTimeNanos - lastFrameNanos < IDLE_FRAME_INTERVAL_NANOS) {
+        val minIntervalNanos = when {
+            !wantsFullFrameRate() -> IDLE_FRAME_INTERVAL_NANOS
+            else -> 0L
+        }
+        if (lastFrameNanos != 0L && minIntervalNanos > 0L &&
+            frameTimeNanos - lastFrameNanos < minIntervalNanos) {
             scheduleFrame()
             return
         }
@@ -897,10 +988,10 @@ class HumanCompanionView @JvmOverloads constructor(
         if (w <= 0 || h <= 0) return
         filamentView?.let { if (it.viewport.width != w || it.viewport.height != h) it.viewport = Viewport(0, 0, w, h) }
         val aspect = w.toFloat() / h
-        val (centerY, halfHeight, halfWidth) = when (displayMode) {
-            DisplayMode.FULL_BODY -> Triple(0.85f, 0.98f, 0.58f)
-            DisplayMode.TOP_RIGHT_PEEK -> Triple(1.35f, 0.45f, 0.40f)
-            DisplayMode.THREAD_DROP -> Triple(0.95f, 1.05f, 0.58f)
+        val (centerY, halfHeight, halfWidth) = when {
+            displayMode == DisplayMode.FULL_BODY -> Triple(0.85f, 0.98f, 0.58f)
+            displayMode == DisplayMode.TOP_RIGHT_PEEK -> Triple(1.35f, 0.45f, 0.40f)
+            else -> Triple(0.95f, 1.05f, 0.58f)
         }
         val tanHalf = tan(Math.toRadians(FOV_DEGREES / 2.0)).toFloat()
         val distance = max(halfHeight / tanHalf, halfWidth / (tanHalf * aspect))
@@ -1179,6 +1270,59 @@ class HumanCompanionView @JvmOverloads constructor(
         canvas.drawPath(cordPath, cordPaint)
     }
 
+    /** Pre-rendered frames from the same scan also work in software-only overlay windows. */
+    private inner class ScanFallback(context: Context) : android.view.View(context) {
+        private val person by lazy { BitmapFactory.decodeResource(resources, R.drawable.companion_actions) }
+        private val turns by lazy { BitmapFactory.decodeResource(resources, R.drawable.companion_turn) }
+        private val standing by lazy { BitmapFactory.decodeResource(resources, R.drawable.companion_standing) }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        private val tile = Rect()
+        private val dest = RectF()
+        private var since = SystemClock.uptimeMillis()
+
+        fun restart() {
+            since = SystemClock.uptimeMillis()
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val age = SystemClock.uptimeMillis() - since
+            val moving = animationEnabled && motionAllowed
+            val previewWalk = moving && animationPhase == PHASE_WALK_IN
+            val route = if (previewWalk) dashboardRoute().also { it.sample(age / 1000f) } else walkRoute
+            val remaining = if (previewWalk && route != null) route.metres * (1f - route.distanceFraction) else 0f
+            if (previewWalk && route != null && age / 1000f >= route.duration && renderState == RenderState.FAILED) {
+                animationPhase = PHASE_TALK
+                return
+            }
+            val walk = moving && walkingIn
+            val turning = walk && route != null && route.profile < 1f
+            val wave = moving && !walk && age < 2200
+            val phase = ((route?.strideTime ?: 0f) / WalkingRoute.PERIOD) % 1f
+            val frame = when {
+                turning -> ((route!!.profile * 7 + .5f).toInt() + if (phase >= .25f && phase <= .75f) 8 else 0)
+                walk -> (phase * 32).toInt().coerceIn(0, 31)
+                wave -> 32 + (age * 16 / 2200).toInt()
+                else -> 32
+            }
+            val atlas = walk || wave
+            val sheet = if (turning) turns else if (atlas) person else standing
+            val w = if (atlas) sheet.width / 8 else sheet.width
+            val h = if (turning) sheet.height / 2 else if (atlas) sheet.height / 6 else sheet.height
+            val sx = if (atlas) frame % 8 * w else 0
+            val sy = if (atlas) frame / 8 * h else 0
+            tile.set(sx, sy, sx + w, sy + h)
+            val scale = minOf(width.toFloat()/w, height.toFloat()/h)
+            dest.set(-w*scale/2, -h*scale, w*scale/2, 0f)
+            canvas.save()
+            canvas.translate(width/2f - walkDirection * remaining * height/1.96f, height.toFloat())
+            if (walk && walkDirection < 0) canvas.scale(-1f, 1f)
+            canvas.drawBitmap(sheet, tile, dest, paint)
+            canvas.restore()
+            if ((wave || walk) && isShown) postInvalidateDelayed(32)
+        }
+    }
+
     private inner class GroundShadowLayer(context: Context) : android.view.View(context) {
         override fun onDraw(canvas: Canvas) = drawGroundShadow(canvas)
     }
@@ -1196,6 +1340,8 @@ class HumanCompanionView @JvmOverloads constructor(
 
     companion object {
         const val PHASE_IDLE = "idle"
+        // WindowManager supplies screen-space travel for cross-app entrances and exits.
+        const val PHASE_SCREEN_WALK = "screen_walk"
         const val PHASE_WALK_IN = "walk_in"
         const val PHASE_TALK = "talk"
         private const val TAG = "HumanCompanionView"

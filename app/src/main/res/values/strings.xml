@@ -1,11 +1,11 @@
 <resources>
     <string name="app_name">myfrnd</string>
-    <string name="companion_title">myfrnd</string>
     <string name="tap_companion">Tap or drag companion to interact</string>
-    <string name="demo_message">Hey! I am here with you. Tap me anytime.</string>
+    <string name="demo_message">Hey, I’m here. Tap me to say hello.</string>
     <string name="demo_cheer">You have got this! Keep going.</string>
-    <string name="preview_companion">Pop on screen</string>
-    <string name="preview_requires_enable">Enable overlay permission to pop on screen.</string>
+    <string name="streak_summary">%1$d breaks · %2$d cups</string>
+
+    <string name="preview_companion">Walk onto my screen</string>
 
     <string name="status_active">Active</string>
     <string name="status_paused">Paused</string>
@@ -14,12 +14,25 @@
     <string name="setup_required">Enable</string>
     <string name="status_problem">Issue</string>
 
-    <string name="permission_title">Allow floating companion</string>
-    <string name="permission_description">Let your companion appear over other apps for screen breaks, water, and notes.</string>
-    <string name="grant_overlay">Grant &amp; Enable</string>
-    <string name="permission_unavailable">Could not open overlay settings on this device.</string>
+    <string name="permission_title">Phone reminders</string>
+    <string name="permission_description">Allow your companion to visit over other apps for breaks, water and scheduled reminders.</string>
+    <string name="grant_overlay">Allow phone visits</string>
+    <string name="permission_unavailable">Overlay settings are unavailable on this device.</string>
 
-    <string name="eye_title">Screen Break</string>
+    <!-- Focus / Pomodoro -->
+    <string name="focus_start_25">Start focus</string>
+    <string name="focus_start_50">Start focus</string>
+    <string name="focus_pause">Pause</string>
+    <string name="focus_resume">Resume</string>
+    <string name="focus_stop">Stop</string>
+    <string name="focus_timer_digits">%1$02d:%2$02d</string>
+    <string name="focus_25m">25m</string>
+    <string name="focus_50m">50m</string>
+    <string name="focus_notif_active">Pomodoro active (%1$d min) · Tap Stop to cancel</string>
+    <string name="focus_notif_paused">Pomodoro paused (%1$02d:%2$02d left)</string>
+
+    <!-- Screen Break -->
+    <string name="eye_title">Eye breaks</string>
     <string name="eye_subtitle">20-20-20 rule · Look 20 ft away for 20s</string>
     <string name="eye_message">Look at something 20 feet away to relax your eyes.</string>
     <string name="take_break_now">20s Break</string>
@@ -28,13 +41,33 @@
     <string name="break_complete_title">Eyes Refreshed</string>
     <string name="break_complete_message">Great break! Back to focus.</string>
 
-    <string name="water_title">Water Break</string>
-    <string name="water_subtitle">Stay hydrated throughout the day</string>
+    <!-- Water Break -->
+    <string name="water_title">Water breaks</string>
+    <string name="water_subtitle">Set the time between water reminders.</string>
     <string name="water_message">Time for a quick sip of water.</string>
     <string name="sip_water_now">Drink</string>
 
+    <!-- Smart Companion Settings -->
+    <string name="smart_settings_title">Preferences</string>
     <string name="voice_label">Speak reminders aloud</string>
-    <string name="voice_subtitle">Read alerts out loud when your companion pops up</string>
+    <string name="voice_subtitle">Your companion reads reminders in a male voice.</string>
+    <string name="headphones_only_label">Headphones only</string>
+
+
+    <string name="wind_down_label">Evening wind-down (8 PM)</string>
+    <string name="wind_down_subtitle">Review unfinished notes &amp; roll to tomorrow</string>
+    <string name="wind_down_review_btn">Review</string>
+    <string name="wind_down_title">End-of-Day Wind Down</string>
+    <string name="wind_down_body">You still have %1$d open notes/reminders. Roll timed items to tomorrow 9 AM?</string>
+    <string name="wind_down_roll_tomorrow">Roll to 9 AM</string>
+    <string name="wind_down_keep_today">Keep Today</string>
+    <string name="wind_down_rolled">Moved %1$d items to tomorrow 9 AM.</string>
+    <string name="wind_down_empty">Nothing unfinished right now. Great job!</string>
+
+    <!-- Quick Note in Overlay -->
+    <string name="overlay_quick_note">+ Note</string>
+    <string name="quick_note_hint">Jot down a quick note...</string>
+    <string name="quick_note_saved_msg">Saved note: %1$s</string>
 
     <string name="countdown">%1$02d:%2$02d</string>
     <string name="countdown_waiting">Due</string>
@@ -47,7 +80,7 @@
     <string name="minutes_45">45m</string>
     <string name="minutes_60">60m</string>
 
-    <string name="tasks_title">Notes &amp; Reminders</string>
+    <string name="tasks_title">Notes &amp; reminders</string>
     <string name="add_task">+ New</string>
     <string name="empty_tasks">No notes or reminders yet.</string>
     <string name="task_count">%1$d</string>
@@ -77,7 +110,6 @@
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
     <string name="edit">Edit</string>
-    <string name="delete">Done</string>
     <string name="done_task">Mark done: %1$s</string>
     <string name="edit_task">Edit: %1$s</string>
     <string name="reminder_saved">Saved.</string>
@@ -88,13 +120,26 @@
     <string name="overlay_snooze_10m">+10m</string>
     <string name="overlay_hide">Hide</string>
     <string name="overlay_task_label">Reminder</string>
-    <string name="overlay_preview_body">Drag me anywhere or start a quick 20s screen break.</string>
-    <string name="dismiss_reminder">Dismiss</string>
+    <string name="overlay_preview_body">Drag me anywhere, add a quick note, or start a break.</string>
 
     <string name="notification_channel">Companion status</string>
     <string name="notification_title">myfrnd is active</string>
-    <string name="notification_description">Screen break, water &amp; note reminders active.</string>
+    <string name="notification_description">Screen break, water, focus &amp; note reminders active.</string>
     <string name="pause">Pause</string>
     <string name="selected">Selected</string>
     <string name="not_selected">Not selected</string>
+    <string name="focus_room">Focus room</string>
+    <string name="focus_session_label">Focus session</string>
+    <string name="focus_room_paused">Session paused</string>
+    <string name="focus_break_label">Take a break</string>
+    <string name="focus_break_done">Break complete</string>
+    <string name="focus_another">Start next session</string>
+    <string name="return_to_break">Open break</string>
+    <string name="focus_end_session">End session</string>
+    <string name="focus_leave_room">Back to dashboard</string>
+    <string name="focus_open_room">Open the focus room</string>
+    <string name="scan_credit"><a href="https://sketchfab.com/3d-models/monochrome-moment-5a509fea8432469b94b73a921f742e39">Monochrome Moment by restore50</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>). Rigged and animated for MyFrnd.\n<a href="https://commons.wikimedia.org/wiki/File:Meow.ogg">Meow by Dan Crosby</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>).</string>
+    <string name="your_companion">Your companion</string>
+    <string name="focus_description">Settle in with your cat.</string>
+    <string name="today_title">Today</string>
 </resources>

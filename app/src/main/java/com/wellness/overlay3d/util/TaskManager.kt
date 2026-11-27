@@ -85,6 +85,24 @@ object TaskManager {
         saveReminders(context, updated)
     }
 
+    fun rollPendingToTomorrowMorning(context: Context, now: Long = System.currentTimeMillis()): Int {
+        val tomorrow9Am = com.wellness.overlay3d.model.ReminderPresets.dueTime(
+            com.wellness.overlay3d.model.ReminderPresets.Preset.TOMORROW_MORNING, now
+        )
+        val all = getAllReminders(context)
+        var rolled = 0
+        val updated = all.map { item ->
+            if (!item.isTriggered && !item.isNote && item.timestampMillis < tomorrow9Am) {
+                rolled++
+                item.copy(timestampMillis = tomorrow9Am)
+            } else {
+                item
+            }
+        }
+        if (rolled > 0) saveReminders(context, updated)
+        return rolled
+    }
+
     private fun saveReminders(context: Context, reminders: List<TaskReminder>) {
         val array = JSONArray()
         reminders.forEach { array.put(it.toJson()) }

@@ -47,12 +47,16 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var syncing = false
+    private var pendingPhoneVisit = false
     private var tapCount = 0
     private val stopTalking = Runnable { binding.liveDashboardCompanion.isTalking = false }
     private val taskListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> renderTasks() }
     private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> loadSettings() }
     private val overlayPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (Settings.canDrawOverlays(this)) enableCompanion()
+        if (Settings.canDrawOverlays(this)) {
+            if (pendingPhoneVisit) showPhoneVisit() else enableCompanion()
+        }
+        pendingPhoneVisit = false
         loadSettings()
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -61,9 +65,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CompanionPreferences.clearRetiredReaderSettings(this)
+        pendingPhoneVisit = savedInstanceState?.getBoolean("pendingPhoneVisit") == true
         enableEdgeToEdge()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.scanCredit.movementMethod = android.text.method.LinkMovementMethod.getInstance()
         binding.dashboardContent.descendants.filter { it.tag == "heading" }
             .forEach { ViewCompat.setAccessibilityHeading(it, true) }
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
@@ -144,10 +151,27 @@ class MainActivity : AppCompatActivity() {
 
         btnTestCompanionNow.setOnClickListener {
             if (!Settings.canDrawOverlays(this@MainActivity)) {
+                pendingPhoneVisit = true
                 requestOverlay()
+            } else showPhoneVisit()
+        }
+
+        btnFocusToggle.setOnClickListener {
+            val saved = CompanionPreferences.getFocusState(this@MainActivity)
+            val onBreak = CompanionPreferences.breakEnd(this@MainActivity) > System.currentTimeMillis()
+            if (saved.active || onBreak || OverlayService.startFocusSession(this@MainActivity)) {
+                startActivity(Intent(this@MainActivity, FocusRoomActivity::class.java))
+            }
+
+        }
+
+        btnFocusDuration.setOnClickListener {
+            if (CompanionPreferences.getFocusState(this@MainActivity).active) {
+                OverlayService.togglePauseFocusSession(this@MainActivity)
             } else {
-                if (!CompanionPreferences.isCompanionEnabled(this@MainActivity)) enableCompanion()
-                OverlayService.startWithInitialDemo(this@MainActivity)
+                val next = if (CompanionPreferences.getFocusDurationMinutes(this@MainActivity) == 25) 50 else 25
+                CompanionPreferences.setFocusDurationMinutes(this@MainActivity, next)
+                loadSettings()
             }
         }
 
@@ -187,6 +211,32 @@ class MainActivity : AppCompatActivity() {
             if (!syncing) CompanionPreferences.setVoiceEnabled(this@MainActivity, checked)
         }
 
+        btnHeadphonesOnly.setOnClickListener {
+            val next = !CompanionPreferences.isHeadphonesOnlyVoice(this@MainActivity)
+            CompanionPreferences.setHeadphonesOnlyVoice(this@MainActivity, next)
+            loadSettings()
+        }
+
+        switchWindDown.setOnCheckedChangeListener { _, checked ->
+            if (!syncing) CompanionPreferences.setWindDownEnabled(this@MainActivity, checked)
+        }
+
+        btnTriggerWindDown.setOnClickListener {
+            val pending = try {
+                TaskManager.getPendingReminders(this@MainActivity)
+            } catch (_: TaskStorageException) {
+                emptyList()
+            }
+            if (pending.isEmpty()) {
+                Toast.makeText(this@MainActivity, R.string.wind_down_empty, Toast.LENGTH_SHORT).show()
+            } else if (!Settings.canDrawOverlays(this@MainActivity)) {
+                requestOverlay()
+            } else {
+                if (!CompanionPreferences.isCompanionEnabled(this@MainActivity)) enableCompanion()
+                OverlayService.triggerWindDownNow(this@MainActivity)
+            }
+        }
+
         eyeChoices().forEach { (button, value) ->
             button.setOnClickListener {
                 CompanionPreferences.setEyeStrainMinutes(this@MainActivity, value)
@@ -215,11 +265,12 @@ class MainActivity : AppCompatActivity() {
             )
             val (exp, msg) = expressions[tapCount++ % expressions.size]
             liveDashboardCompanion.displayMode = HumanCompanionView.DisplayMode.FULL_BODY
+            liveDashboardCompanion.walkDirection = if (tapCount % 8 == 1) 1 else -1
             liveDashboardCompanion.animationPhase = if (tapCount % 4 == 1)
                 HumanCompanionView.PHASE_WALK_IN else HumanCompanionView.PHASE_IDLE
             liveDashboardCompanion.currentExpression = exp
             liveDashboardCompanion.isTalking = true
-            liveDashboardCompanion.triggerTapReaction()
+            if (exp == HumanCompanionView.Expression.NORMAL) liveDashboardCompanion.triggerTapReaction()
             liveDashboardCompanion.removeCallbacks(stopTalking)
             liveDashboardCompanion.postDelayed(stopTalking, 2_400L)
             tvLiveCompanionSpeech.setText(msg)
@@ -228,6 +279,16 @@ class MainActivity : AppCompatActivity() {
         btnAddNewTask.setOnClickListener {
             TaskEditorDialog.create().show(supportFragmentManager, "task-editor")
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean("pendingPhoneVisit", pendingPhoneVisit)
+    }
+
+    private fun showPhoneVisit() {
+        CompanionPreferences.setCompanionEnabled(this, true)
+        if (OverlayService.startWithInitialDemo(this)) moveTaskToBack(true)
     }
 
     private fun requestOverlay() {
@@ -278,10 +339,21 @@ class MainActivity : AppCompatActivity() {
         switchScreenBreak.isChecked = CompanionPreferences.isScreenBreakEnabled(this@MainActivity)
         switchWaterBreak.isChecked = CompanionPreferences.isWaterBreakEnabled(this@MainActivity)
         switchVoice.isChecked = CompanionPreferences.isVoiceEnabled(this@MainActivity)
+        switchWindDown.isChecked = CompanionPreferences.isWindDownEnabled(this@MainActivity)
         liveDashboardCompanion.reducedMotion = CompanionPreferences.isReducedMotion(this@MainActivity)
         syncing = false
+
+        select(btnHeadphonesOnly, CompanionPreferences.isHeadphonesOnlyVoice(this@MainActivity))
         eyeChoices().forEach { select(it.first, it.second == CompanionPreferences.getEyeStrainMinutes(this@MainActivity)) }
         waterChoices().forEach { select(it.first, it.second == CompanionPreferences.getWaterIntervalMinutes(this@MainActivity)) }
+
+        val focusMin = CompanionPreferences.getFocusDurationMinutes(this@MainActivity)
+        btnFocusDuration.text = getString(if (focusMin == 50) R.string.focus_50m else R.string.focus_25m)
+
+        val breaksToday = CompanionPreferences.getBreaksToday(this@MainActivity)
+        val waterToday = CompanionPreferences.getWaterToday(this@MainActivity)
+        tvStreakBadge.text = getString(R.string.streak_summary, breaksToday, waterToday)
+
         llMandatoryOverlayBanner.isVisible = !Settings.canDrawOverlays(this@MainActivity)
         renderStatus(CompanionRuntime.status.value)
     }
@@ -341,6 +413,25 @@ class MainActivity : AppCompatActivity() {
             CompanionPreferences.isWaterBreakEnabled(this), false,
             status.nextWater, CompanionPreferences.getWaterIntervalMinutes(this), R.string.water_title
         )
+
+        val focus = CompanionPreferences.getFocusState(this)
+
+        binding.btnFocusDuration.isVisible = !focus.active
+        if (focus.active) {
+            binding.btnFocusToggle.setText(R.string.focus_open_room)
+            binding.btnFocusToggle.setBackgroundResource(R.drawable.bg_pill_active)
+            binding.btnFocusToggle.setTextColor(getColor(R.color.on_primary))
+        } else {
+            val focusMin = CompanionPreferences.getFocusDurationMinutes(this)
+            binding.btnFocusToggle.setText(when {
+                CompanionPreferences.breakEnd(this) > System.currentTimeMillis() -> R.string.return_to_break
+                focusMin == 50 -> R.string.focus_start_50
+                else -> R.string.focus_start_25
+            })
+            binding.btnFocusToggle.setBackgroundResource(R.drawable.bg_button_primary)
+            binding.btnFocusToggle.setTextColor(getColor(R.color.on_primary))
+            binding.btnFocusDuration.setText(if (focusMin == 50) R.string.focus_50m else R.string.focus_25m)
+        }
     }
 
     private fun renderTasks() {

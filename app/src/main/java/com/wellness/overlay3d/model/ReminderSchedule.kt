@@ -76,6 +76,17 @@ class ReminderSchedule(
         nextEye = if (eyeEnabled) now + snoozeMinutes * 60_000L else null
     }
 
+    fun restoreFromWallDeadlines(now: Long, wallNow: Long, eyeWallMs: Long?, waterWallMs: Long?, screenActive: Boolean) {
+        if (waterEnabled && waterWallMs != null && waterWallMs > wallNow) {
+            val rem = (waterWallMs - wallNow).coerceAtMost(waterInterval)
+            nextWater = now + rem
+        }
+        if (eyeEnabled && screenActive && eyeWallMs != null && eyeWallMs > wallNow) {
+            val rem = (eyeWallMs - wallNow).coerceAtMost(eyeInterval)
+            nextEye = now + rem
+        }
+    }
+
     fun nextDelay(now: Long, nextTaskDelay: Long?): Long =
         listOfNotNull(nextWater?.minus(now), nextEye?.minus(now), nextTaskDelay)
             .minOrNull()?.coerceAtLeast(0L) ?: 60_000L

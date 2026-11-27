@@ -25,13 +25,15 @@
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Companion"
         tools:targetApi="36">
 
-        <!-- Main Activity: Interactive Onboarding, Permissions & Interval Setup Dashboard -->
+        <activity android:name=".ui.FocusRoomActivity" android:exported="false" android:launchMode="singleTop" />
+
+        <!-- Main Activity: Companion Dashboard -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
@@ -51,7 +53,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Interactive companion providing real-time screen-time eye breaks, hydration alerts, notes, and task reminders." />
+                android:value="Interactive companion providing real-time screen-time eye breaks, hydration alerts, focus sessions and notes." />
         </service>
 
         <!-- Boot Receiver to revive the Foreground Service on device restart -->

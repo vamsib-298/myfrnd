@@ -11,6 +11,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -26,9 +28,11 @@ import com.wellness.overlay3d.R
 import com.wellness.overlay3d.model.ReminderSchedule
 import com.wellness.overlay3d.overlay.OverlayWindowManager
 import com.wellness.overlay3d.ui.MainActivity
+import com.wellness.overlay3d.util.AudioEnvironment
 import com.wellness.overlay3d.util.CompanionPreferences
 import com.wellness.overlay3d.util.TaskManager
 import com.wellness.overlay3d.util.TaskStorageException
+import java.util.Calendar
 
 class OverlayService : Service() {
     companion object {
@@ -40,10 +44,22 @@ class OverlayService : Service() {
         const val ACTION_UPDATE_CONFIG = "com.myfrnd.app.ACTION_UPDATE_CONFIG"
         const val ACTION_TRIGGER_EYE_STRAIN = "com.myfrnd.app.ACTION_TRIGGER_EYE_STRAIN"
         const val ACTION_TRIGGER_WATER = "com.myfrnd.app.ACTION_TRIGGER_WATER"
+        const val ACTION_START_FOCUS = "com.myfrnd.app.ACTION_START_FOCUS"
+        const val ACTION_TOGGLE_PAUSE_FOCUS = "com.myfrnd.app.ACTION_TOGGLE_PAUSE_FOCUS"
+        const val ACTION_STOP_FOCUS = "com.myfrnd.app.ACTION_STOP_FOCUS"
+        const val ACTION_TRIGGER_WIND_DOWN = "com.myfrnd.app.ACTION_TRIGGER_WIND_DOWN"
+
+        private const val ACTION_RESTORE_FOCUS = "com.myfrnd.app.ACTION_RESTORE_FOCUS"
+        private val focusActions = setOf(ACTION_RESTORE_FOCUS, ACTION_START_FOCUS, ACTION_TOGGLE_PAUSE_FOCUS, ACTION_STOP_FOCUS)
 
         fun startWithInitialDemo(context: Context) = start(context, ACTION_DEMO_NOW)
         fun triggerScreenBreakNow(context: Context) = start(context, ACTION_TRIGGER_EYE_STRAIN)
         fun triggerWaterNow(context: Context) = start(context, ACTION_TRIGGER_WATER)
+        fun restoreFocusSession(context: Context) = start(context, ACTION_RESTORE_FOCUS)
+        fun startFocusSession(context: Context) = start(context, ACTION_START_FOCUS)
+        fun togglePauseFocusSession(context: Context) = start(context, ACTION_TOGGLE_PAUSE_FOCUS)
+        fun stopFocusSession(context: Context) = start(context, ACTION_STOP_FOCUS)
+        fun triggerWindDownNow(context: Context) = start(context, ACTION_TRIGGER_WIND_DOWN)
         fun updateConfiguration(context: Context) = start(context, ACTION_UPDATE_CONFIG)
 
         fun pause(context: Context) {
@@ -53,7 +69,7 @@ class OverlayService : Service() {
         }
 
         private fun start(context: Context, action: String): Boolean {
-            if (!CompanionPreferences.isCompanionEnabled(context) || !Settings.canDrawOverlays(context)) {
+            if (action !in focusActions && (!CompanionPreferences.isCompanionEnabled(context) || !Settings.canDrawOverlays(context))) {
                 CompanionRuntime.publish(CompanionStatus(error = R.string.setup_required))
                 return false
             }
@@ -78,12 +94,22 @@ class OverlayService : Service() {
     private var screenActive = false
     private var destroyed = false
     private var runtimeError: Int? = null
+
     private var previewRequested = false
     private var breakNowRequested = false
     private var waterNowRequested = false
+    private var windDownRequested = false
+
+    private var focusActive = false
+    private var focusPaused = false
+    private var catSound: MediaPlayer? = null
+    private var focusEndElapsed: Long = 0L
+    private var focusRemainingMs: Long = 0L
+
     private val evaluate = Runnable { evaluateReminders() }
-    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        if (!CompanionPreferences.isCompanionEnabled(this)) {
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (CompanionPreferences.isScheduleDeadlineKey(key)) return@OnSharedPreferenceChangeListener
+        if (!CompanionPreferences.isCompanionEnabled(this) && !focusActive && !CompanionRuntime.roomVisible) {
             stopSelf()
         } else {
             schedule.configure(
@@ -109,20 +135,32 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startServiceInForeground()
         screenActive = isScreenAvailable()
+        val now = SystemClock.elapsedRealtime()
+        val wallNow = System.currentTimeMillis()
         schedule = ReminderSchedule(
-            now = SystemClock.elapsedRealtime(),
+            now = now,
             waterMinutes = CompanionPreferences.getWaterIntervalMinutes(this),
             eyeMinutes = CompanionPreferences.getEyeStrainMinutes(this),
             screenActive = screenActive,
             waterEnabled = CompanionPreferences.isWaterBreakEnabled(this),
             eyeEnabled = CompanionPreferences.isScreenBreakEnabled(this)
-        )
+        ).apply {
+            restoreFromWallDeadlines(
+                now = now,
+                wallNow = wallNow,
+                eyeWallMs = CompanionPreferences.getNextEyeWallMs(this@OverlayService),
+                waterWallMs = CompanionPreferences.getNextWaterWallMs(this@OverlayService),
+                screenActive = screenActive
+            )
+        }
+        restorePersistedFocus(now, wallNow)
+        startServiceInForeground()
         overlays = OverlayWindowManager(
             context = this,
             onDismissed = { requestEvaluation(400L) },
             onEyeBreakDone = {
+                CompanionPreferences.incrementBreaksToday(this)
                 schedule.eyeDelivered(SystemClock.elapsedRealtime())
                 publishStatus()
             },
@@ -131,6 +169,7 @@ class OverlayService : Service() {
                 publishStatus()
             },
             onWaterDone = {
+                CompanionPreferences.incrementWaterToday(this)
                 schedule.waterDelivered(SystemClock.elapsedRealtime())
                 publishStatus()
             },
@@ -144,8 +183,17 @@ class OverlayService : Service() {
                 } catch (error: TaskStorageException) {
                     Log.e(TAG, "Could not snooze task", error)
                 }
+            },
+            onRollTasksTomorrow = {
+                try {
+                    TaskManager.rollPendingToTomorrowMorning(this)
+                } catch (error: TaskStorageException) {
+                    Log.e(TAG, "Could not roll reminders to tomorrow", error)
+                    0
+                }
             }
         )
+        CompanionRuntime.onRoomVisibilityChanged = { requestEvaluation() }
         overlays.refreshPreferences()
         CompanionPreferences.getPrefs(this).registerOnSharedPreferenceChangeListener(preferenceListener)
         TaskManager.preferences(this).registerOnSharedPreferenceChangeListener(taskListener)
@@ -164,17 +212,140 @@ class OverlayService : Service() {
             pause(this)
             return START_NOT_STICKY
         }
-        if (!CompanionPreferences.isCompanionEnabled(this) || !Settings.canDrawOverlays(this)) {
+        if (!canShowReminders() && !focusActive && intent?.action !in focusActions) {
             stopSelf()
             return START_NOT_STICKY
         }
+        val now = SystemClock.elapsedRealtime()
         when (intent?.action) {
             ACTION_DEMO_NOW -> previewRequested = true
             ACTION_TRIGGER_EYE_STRAIN -> breakNowRequested = true
             ACTION_TRIGGER_WATER -> waterNowRequested = true
+            ACTION_TRIGGER_WIND_DOWN -> windDownRequested = true
+            ACTION_START_FOCUS -> {
+                if (focusActive) {
+                    requestEvaluation()
+                    return START_STICKY
+                }
+                val mins = CompanionPreferences.getFocusDurationMinutes(this)
+                focusActive = true
+                CompanionPreferences.clearFocusBreak(this)
+                focusPaused = false
+                focusRemainingMs = mins * 60_000L
+                focusEndElapsed = now + focusRemainingMs
+                persistFocusState(now)
+                CompanionRuntime.pendingCatEntrance = {
+                    if (focusActive && !focusPaused && SystemClock.elapsedRealtime() - now <= 4_000) playCatSound()
+                }
+                if (overlays.isOverlayActive) overlays.destroyOverlayImmediately()
+            }
+            ACTION_TOGGLE_PAUSE_FOCUS -> {
+                toggleFocusPauseInternal()
+            }
+            ACTION_STOP_FOCUS -> {
+                CompanionRuntime.pendingCatEntrance = null
+                releaseCatSound()
+                focusActive = false
+                focusPaused = false
+                focusEndElapsed = 0L
+                focusRemainingMs = 0L
+                CompanionPreferences.clearFocusState(this)
+            }
         }
         requestEvaluation()
         return START_STICKY
+    }
+
+    private fun restorePersistedFocus(now: Long, wallNow: Long) {
+        val saved = CompanionPreferences.getFocusState(this)
+        if (!saved.active) return
+        if (saved.paused) {
+            focusActive = true
+            focusPaused = true
+            focusRemainingMs = saved.remainingMs.coerceAtLeast(1_000L)
+            focusEndElapsed = 0L
+        } else {
+            val remaining = saved.endWallMs - wallNow
+            if (remaining > 0L) {
+                focusActive = true
+                focusPaused = false
+                focusRemainingMs = remaining
+                focusEndElapsed = now + remaining
+            } else {
+                focusActive = false
+                focusPaused = false
+                focusEndElapsed = 0L
+                focusRemainingMs = 0L
+                CompanionPreferences.finishFocus(this, saved.endWallMs)
+            }
+        }
+    }
+
+    private fun persistFocusState(now: Long) {
+        if (!focusActive) {
+            CompanionPreferences.clearFocusState(this)
+            return
+        }
+        val wallEnd = if (focusPaused) 0L else System.currentTimeMillis() + (focusEndElapsed - now).coerceAtLeast(0L)
+        val rem = if (focusPaused) focusRemainingMs else (focusEndElapsed - now).coerceAtLeast(0L)
+        CompanionPreferences.saveFocusState(this, active = true, paused = focusPaused, endWallMs = wallEnd, remainingMs = rem)
+    }
+
+    private fun persistScheduleDeadlines(now: Long, wallNow: Long) {
+        val eyeWall = schedule.nextEye?.let { wallNow + (it - now).coerceAtLeast(0L) }
+        val waterWall = schedule.nextWater?.let { wallNow + (it - now).coerceAtLeast(0L) }
+        CompanionPreferences.saveScheduleDeadlines(this, eyeWall, waterWall)
+    }
+
+    private fun toggleFocusPauseInternal() {
+        if (!focusActive) return
+        val now = SystemClock.elapsedRealtime()
+        if (!focusPaused && now >= focusEndElapsed) {
+            requestEvaluation()
+            return
+        }
+        if (!focusPaused) {
+            CompanionRuntime.pendingCatEntrance = null
+            focusPaused = true
+            focusRemainingMs = (focusEndElapsed - now).coerceAtLeast(1_000L)
+            focusEndElapsed = 0L
+            playCatSound()
+        } else {
+            releaseCatSound()
+            focusPaused = false
+            focusEndElapsed = now + focusRemainingMs.coerceAtLeast(1_000L)
+        }
+        persistFocusState(now)
+        publishStatus()
+        requestEvaluation()
+    }
+
+    private fun playCatSound() {
+        releaseCatSound()
+        val audio = getSystemService(AudioManager::class.java)
+        if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL ||
+            audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0 ||
+            AudioEnvironment.isInActiveCall(this) ||
+            (CompanionPreferences.isHeadphonesOnlyVoice(this) && !AudioEnvironment.areHeadphonesConnected(this))) return
+        try {
+            val player = MediaPlayer.create(this, R.raw.tabby_meow) ?: return
+            catSound = player
+            player.setVolume(.42f, .42f)
+            player.setOnCompletionListener { if (catSound === it) releaseCatSound() }
+            player.setOnErrorListener { failed, _, _ ->
+                if (catSound === failed) releaseCatSound()
+                true
+            }
+            player.start()
+        } catch (error: RuntimeException) {
+            releaseCatSound()
+            Log.w(TAG, "Could not play the cat sound", error)
+        }
+    }
+
+    private fun releaseCatSound() {
+        catSound?.release()
+        catSound = null
     }
 
     private fun isScreenAvailable(): Boolean =
@@ -188,6 +359,9 @@ class OverlayService : Service() {
     }
 
     private fun publishStatus() {
+        val currentRemaining = if (focusActive) {
+            if (focusPaused) focusRemainingMs else (focusEndElapsed - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        } else 0L
         CompanionRuntime.publish(
             CompanionStatus(
                 running = true,
@@ -196,23 +370,69 @@ class OverlayService : Service() {
                 waterBreakEnabled = CompanionPreferences.isWaterBreakEnabled(this),
                 nextEye = schedule.nextEye,
                 nextWater = schedule.nextWater,
+                focusActive = focusActive,
+                focusPaused = focusPaused,
+                focusEndElapsed = if (focusActive && !focusPaused) focusEndElapsed else null,
+                focusRemainingMs = currentRemaining,
+                focusDurationMin = CompanionPreferences.getFocusDurationMinutes(this),
                 error = runtimeError
             )
         )
+        updateForegroundNotification()
     }
 
+    private fun isEveningWindDownDue(wallTime: Long): Boolean {
+        if (!CompanionPreferences.isWindDownEnabled(this)) return false
+        if (CompanionPreferences.wasWindDownShownToday(this, wallTime)) return false
+        val cal = Calendar.getInstance().apply { timeInMillis = wallTime }
+        return cal.get(Calendar.HOUR_OF_DAY) >= 20
+    }
+
+    private fun canShowReminders() =
+        CompanionPreferences.isCompanionEnabled(this) && Settings.canDrawOverlays(this)
+
     private fun evaluateReminders() {
-        if (!CompanionPreferences.isCompanionEnabled(this) || !Settings.canDrawOverlays(this)) {
-            runtimeError = if (!Settings.canDrawOverlays(this)) R.string.setup_required else null
-            stopSelf()
-            return
-        }
-        publishStatus()
-        if (!screenActive || overlays.isOverlayActive) return
         val now = SystemClock.elapsedRealtime()
         val wallTime = System.currentTimeMillis()
-        val pendingTimed = try {
-            TaskManager.getPendingTimedReminders(this)
+        if (focusActive && !focusPaused && now >= focusEndElapsed) {
+            CompanionPreferences.finishFocus(this, wallTime - (now - focusEndElapsed))
+            focusActive = false
+            focusPaused = false
+            focusEndElapsed = 0L
+            focusRemainingMs = 0L
+        }
+
+        if (CompanionRuntime.roomVisible || !canShowReminders() || !screenActive) {
+            if (overlays.isOverlayActive) overlays.destroyOverlayImmediately()
+            publishStatus()
+            if (focusActive && !focusPaused) requestEvaluation((focusEndElapsed - now).coerceAtLeast(1L))
+            if (!canShowReminders() && !focusActive) stopSelf()
+            return
+        }
+        if (focusActive) {
+            if (previewRequested && !overlays.isOverlayActive && !AudioEnvironment.isInActiveCall(this)) {
+                if (overlays.showOverlay(OverlayWindowManager.OverlayReason.GENERAL_TEST, getString(R.string.demo_message))) {
+                    previewRequested = false
+                }
+            }
+            publishStatus()
+            if (!focusPaused) requestEvaluation((focusEndElapsed - now).coerceAtLeast(1L))
+            return
+        }
+        persistScheduleDeadlines(now, wallTime)
+        publishStatus()
+
+        // Delay reminder visits during a phone or VoIP call.
+        val inCall = AudioEnvironment.isInActiveCall(this)
+        if (inCall) {
+            requestEvaluation(15_000L)
+            return
+        }
+
+        if (overlays.isOverlayActive) return
+
+        val allPending = try {
+            TaskManager.getPendingReminders(this)
         } catch (error: TaskStorageException) {
             Log.e(TAG, "Reminders could not be loaded; saved data was not modified", error)
             runtimeError = R.string.task_storage_error
@@ -221,8 +441,16 @@ class OverlayService : Service() {
             return
         }
         runtimeError = null
+        val pendingTimed = allPending.filterNot { it.isNote }
         val task = pendingTimed.firstOrNull()
+
         val shown = when {
+            previewRequested -> {
+                overlays.showOverlay(
+                    reason = OverlayWindowManager.OverlayReason.GENERAL_TEST,
+                    spokenText = getString(R.string.demo_message)
+                ).also { if (it) previewRequested = false }
+            }
             task != null && task.timestampMillis <= wallTime -> {
                 overlays.showOverlay(
                     reason = OverlayWindowManager.OverlayReason.WORK_TASK_REMINDER,
@@ -245,11 +473,17 @@ class OverlayService : Service() {
                     spokenText = getString(R.string.water_message)
                 ).also { if (it) { waterNowRequested = false; schedule.waterDelivered(now) } }
             }
-            previewRequested -> {
+            (windDownRequested || isEveningWindDownDue(wallTime)) && allPending.isNotEmpty() -> {
                 overlays.showOverlay(
-                    reason = OverlayWindowManager.OverlayReason.GENERAL_TEST,
-                    spokenText = getString(R.string.demo_message)
-                ).also { if (it) previewRequested = false }
+                    reason = OverlayWindowManager.OverlayReason.EVENING_WIND_DOWN,
+                    spokenText = getString(R.string.wind_down_body, allPending.size),
+                    pendingCount = allPending.size
+                ).also {
+                    if (it) {
+                        windDownRequested = false
+                        CompanionPreferences.markWindDownShownToday(this, wallTime)
+                    }
+                }
             }
             schedule.nextWater?.let { now >= it } == true -> {
                 overlays.showOverlay(
@@ -267,8 +501,59 @@ class OverlayService : Service() {
         }
         publishStatus()
         if (!shown) {
-            requestEvaluation(schedule.nextDelay(now, task?.timestampMillis?.minus(wallTime)).coerceAtLeast(1_000L))
+            val nextWake = schedule.nextDelay(now, task?.timestampMillis?.minus(wallTime))?.coerceAtLeast(1_000L) ?: 60_000L
+            requestEvaluation(nextWake)
         }
+    }
+
+    private fun buildForegroundNotification(): android.app.Notification {
+        val open = PendingIntent.getActivity(
+            this, 100, Intent(this, if (focusActive) com.wellness.overlay3d.ui.FocusRoomActivity::class.java else MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val stopService = PendingIntent.getService(
+            this, 103,
+            Intent(this, OverlayService::class.java).setAction(ACTION_STOP_SERVICE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+
+        if (focusActive) {
+            val content = if (focusPaused) {
+                val sec = (focusRemainingMs + 999L) / 1000L
+                getString(R.string.focus_notif_paused, sec / 60, sec % 60)
+            } else {
+                getString(R.string.focus_notif_active, CompanionPreferences.getFocusDurationMinutes(this))
+            }
+            val pauseToggle = PendingIntent.getService(
+                this, 104,
+                Intent(this, OverlayService::class.java).setAction(ACTION_TOGGLE_PAUSE_FOCUS),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val stopFocus = PendingIntent.getService(
+                this, 105,
+                Intent(this, OverlayService::class.java).setAction(ACTION_STOP_FOCUS),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.setContentText(content)
+                .addAction(0, getString(if (focusPaused) R.string.focus_resume else R.string.focus_pause), pauseToggle)
+                .addAction(0, getString(R.string.focus_stop), stopFocus)
+        } else {
+            builder.setContentText(getString(R.string.notification_description))
+                .addAction(0, getString(R.string.pause), stopService)
+        }
+        return builder.build()
+    }
+
+    private fun updateForegroundNotification() {
+        if (destroyed) return
+        getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, buildForegroundNotification())
     }
 
     private fun startServiceInForeground() {
@@ -280,27 +565,8 @@ class OverlayService : Service() {
             setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        val open = PendingIntent.getActivity(
-            this, 100, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val stop = PendingIntent.getService(
-            this, 103,
-            Intent(this, OverlayService::class.java).setAction(ACTION_STOP_SERVICE),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_description))
-            .setContentIntent(open)
-            .setOngoing(true)
-            .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, getString(R.string.pause), stop)
-            .build()
         ServiceCompat.startForeground(
-            this, NOTIFICATION_ID, notification,
+            this, NOTIFICATION_ID, buildForegroundNotification(),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         )
     }
@@ -308,6 +574,9 @@ class OverlayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        releaseCatSound()
+        CompanionRuntime.pendingCatEntrance = null
+        CompanionRuntime.onRoomVisibilityChanged = null
         destroyed = true
         handler.removeCallbacksAndMessages(null)
         unregisterReceiver(screenReceiver)
